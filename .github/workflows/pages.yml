@@ -1,9 +1,12 @@
 name: Deploy benchmark site
 
 # Publishes the dashboard to https://infino-ai.github.io/search-benchmark-game
-# whenever an updated results.json (or the prebuilt web app) lands on master.
-# The web app is prebuilt and committed under web/build (react-scripts 3.4.3),
-# so we just drop results.json next to index.html and deploy — no Node build.
+# whenever an updated results.json, page or page source lands on master.
+#
+# The page bundle is built here from web/src on every deploy, and every page
+# under web/build is restamped to point at it (web/build.sh). A bundle
+# committed by hand goes stale the first time someone edits web/src and does
+# not rebuild, and nothing notices: the site keeps serving the old script.
 
 on:
   push:
@@ -12,6 +15,13 @@ on:
       - results.json
       - results-full.json
       - web/build/**
+      - web/src/**
+      - web/public/**
+      - web/package.json
+      - web/package-lock.json
+      - web/build.sh
+      - scripts/stage_site.py
+      - scripts/publish_branch_full.py
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -32,6 +42,15 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # react-scripts 3.4.3 and node-sass 4.14.1, as locked, install on Node 14
+      # and not on anything current.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 14
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the page bundle and point every page at it
+        run: web/build.sh
       - name: Stage results into the prebuilt site
         run: |
           # full 962-query benchmark → root and /full dashboards

@@ -120,29 +120,45 @@ def merge(main_full: dict, branch_full: dict, engine_key: str, label: str) -> di
     return main_full
 
 
-def render_index(template_html: str, label: str, extra_depth: int = 1) -> str:
-    """Adapt the prebuilt /full page for deeper nesting + retitle.
+# A page's reference to the shared bundle, at whatever depth it was written for:
+# `./static/` at the site root, `../static/` one level down, and so on.
+STATIC_REF = re.compile(r"""(["'])(?:\./|(?:\.\./)+)static/""")
 
-    /full sits one level under the site root and references `../static/...`.
-    A page nested deeper needs one `../` per extra level: `<fork>/full` is one
-    deeper, `<fork>/<corpus>/<scale>/full` is three. Getting this wrong costs
-    the page its stylesheet and script, so the depth is computed from the
-    output path rather than assumed.
+
+def relocate(html: str, depth: int) -> str:
+    """Point a page's asset references at the site root from `depth` levels down.
+
+    Getting this wrong costs the page its stylesheet and script, so callers
+    compute the depth from the page's path rather than assume it.
     """
-    html = template_html.replace("../static/", "../" * (extra_depth + 1) + "static/")
+    prefix = "../" * depth if depth else "./"
+    return STATIC_REF.sub(lambda m: m.group(1) + prefix + "static/", html)
+
+
+def retitle(html: str, label: str) -> str:
+    """Name the page after what it shows, in the tab and in the heading."""
     html = re.sub(
         r"<title>.*?</title>",
         f"<title>Search benchmark — {label}</title>",
         html,
         count=1,
     )
-    html = re.sub(
+    return re.sub(
         r"<h1>.*?</h1>",
         f"<h1>Search Benchmark, the Game — {label}</h1>",
         html,
         count=1,
     )
-    return html
+
+
+def render_index(template_html: str, label: str, extra_depth: int = 1) -> str:
+    """Adapt the prebuilt /full page for deeper nesting + retitle.
+
+    /full sits one level under the site root. A page nested deeper needs one
+    `../` per extra level: `<fork>/full` is one deeper,
+    `<fork>/<corpus>/<scale>/full` is three.
+    """
+    return retitle(relocate(template_html, extra_depth + 1), label)
 
 
 def main() -> None:
