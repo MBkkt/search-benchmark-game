@@ -110,7 +110,7 @@ if __name__ == "__main__":
     # which engine build answers, and the settings that quietly change what the
     # answer means. Never fatal, like everything else in run_provenance.
     for line in run_provenance.describe(
-        run_provenance.collect(query_path, None, started_utc)
+        run_provenance.collect(query_path, None, started_utc, engines)
     ):
         print("--- %s" % line, file=sys.stderr)
 
@@ -192,7 +192,7 @@ if __name__ == "__main__":
         results[command] = results_commands
     # What produced these numbers: corpus, query set, and when the run started.
     # Never fatal — see run_provenance.py.
-    run = run_provenance.collect(query_path, COMMANDS, started_utc)
+    run = run_provenance.collect(query_path, COMMANDS, started_utc, engines)
     # RESULTS_PATH lets a run write somewhere other than results.json, which is
     # a tracked file holding the nightly's own output. A run that writes through
     # it and renames afterwards leaves that file deleted in the working tree.

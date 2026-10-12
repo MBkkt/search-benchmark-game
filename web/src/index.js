@@ -250,6 +250,29 @@ function RunProvenance({ data }) {
   if (run.started_utc) {
     rows.push(["Run", run.started_utc.replace("T", " ").replace("+00:00", "") + " UTC"]);
   }
+  // Only the engines built from a working tree carry a commit; everything
+  // else here is pinned and has nothing to attribute.
+  if (run.engines) {
+    const built = Object.keys(run.engines).sort().map((name) => {
+      const e = run.engines[name];
+      return name + " at " + e.commit + (e.dirty ? " (uncommitted changes)" : "");
+    });
+    if (built.length) rows.push(["Engine build", built.join(", ")]);
+  }
+  // Settings that change what a timing means without changing any code.
+  if (run.reader) {
+    const r = run.reader;
+    const parts = [];
+    if (r.cache_budget_gb) {
+      parts.push(r.cache_budget_gb === "unset"
+        ? "disk cache budget unset, so the engine default applies"
+        : "disk cache budget " + numberWithCommas(r.cache_budget_gb) + " GB");
+    }
+    if (r.query_threads) {
+      parts.push(r.query_threads + (r.query_threads === "1" ? " query thread" : " query threads"));
+    }
+    if (parts.length) rows.push(["Reader", parts.join(", ")]);
+  }
   // Present only when this run built the index it queried (a scale build).
   if (run.build) {
     const b = run.build;
