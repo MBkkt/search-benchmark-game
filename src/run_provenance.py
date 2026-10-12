@@ -33,7 +33,7 @@ def _line_count(file_path):
         return None
 
 
-def run_provenance(query_path, commands, started_utc):
+def run_provenance(query_path, commands, started_utc, engines=None):
     """The `run` block written beside details/index_sizes/results."""
     run = {
         "started_utc": started_utc,
@@ -42,9 +42,9 @@ def run_provenance(query_path, commands, started_utc):
     if commands:
         run["commands"] = list(commands)
 
-    engines = _engine_builds()
-    if engines:
-        run["engines"] = engines
+    builds = _engine_builds(engines)
+    if builds:
+        run["engines"] = builds
     reader = _reader_settings()
     if reader:
         run["reader"] = reader
@@ -90,12 +90,14 @@ def run_provenance(query_path, commands, started_utc):
 
 
 def _engine_commit(engine_dir):
-    """The commit of the checkout an engine path-depends on, if it has one.
+    """The commit of the infino checkout this engine path-depends on.
 
-    An engine whose dependency is a pinned version from the registry has
-    nothing to report: the bytes it compiled against cannot move. One that
-    path-depends on a checkout can be built from any commit, and nothing else
-    in a results file says which.
+    Only the infino engines are reported, and only those built from a
+    checkout. Every other engine here is pinned: a released version from a
+    registry, or a jar at a fixed version. Their bytes cannot move between
+    runs, so there is no commit to attribute and nothing a reader would do
+    with one. An engine built from a working tree can be any commit at all,
+    and nothing else in a results file says which.
     """
     manifest = path.join(engine_dir, "Cargo.toml")
     try:
@@ -139,15 +141,23 @@ def _engine_commit(engine_dir):
     return out
 
 
-def _engine_builds():
-    """Per engine, the commit it was built from, for engines that can move."""
+def _engine_builds(engines=None):
+    """Per infino engine a run used, the commit it was built from.
+
+    Restricted to the engines a run actually used. Reporting every engine
+    directory that happens to sit on the host would put a commit beside an
+    engine that answered no queries, which is worse than saying nothing.
+    """
     root = path.dirname(path.dirname(path.abspath(__file__)))
     engines_dir = path.join(root, "engines")
     out = {}
-    try:
-        names = sorted(os.listdir(engines_dir))
-    except OSError:
-        return out
+    if engines:
+        names = sorted(engines)
+    else:
+        try:
+            names = sorted(os.listdir(engines_dir))
+        except OSError:
+            return out
     for name in names:
         built = _engine_commit(path.join(engines_dir, name))
         if built:
@@ -219,14 +229,14 @@ def _build_stats():
     return stats
 
 
-def collect(query_path, commands, started_utc):
+def collect(query_path, commands, started_utc, engines=None):
     """`run_provenance`, with any failure reduced to an error string.
 
     The caller is a bench run that has already spent hours; it must finish and
     write its results whatever happens here.
     """
     try:
-        return run_provenance(query_path, commands, started_utc)
+        return run_provenance(query_path, commands, started_utc, engines)
     except Exception as e:  # noqa: BLE001 - deliberately total
         return {"error": "run metadata collection failed: %s" % e}
 
