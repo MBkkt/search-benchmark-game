@@ -1,7 +1,9 @@
 CORPUS := $(shell pwd)/corpus.json
 export
 
-WIKI_SRC = "https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2"
+# Which corpus corpus.json holds. Every corpus, its source and its document
+# count is declared in src/corpora.py; wikipedia is the nightly's.
+CORPUS_NAME ?= wikipedia
 
 COMMANDS ?= TOP_10 TOP_100 TOP_1000 TOP_100_COUNT COUNT
 
@@ -27,8 +29,9 @@ help:
 all: index
 
 corpus:
-	@echo "--- Downloading $(WIKI_SRC) ---"
-	@curl -# -L "$(WIKI_SRC)" | bunzip2 -c | python3 corpus_transform.py > $(CORPUS)
+	@echo "--- Fetching $(CORPUS_NAME)$(if $(SCALE), at $(SCALE)) into $(CORPUS) ---"
+	@python3 src/corpora.py stream --corpus $(CORPUS_NAME) $(if $(SCALE),--scale $(SCALE)) > $(CORPUS).part
+	@mv $(CORPUS).part $(CORPUS)
 
 clean:
 	@echo "--- Cleaning directories ---"
@@ -81,14 +84,19 @@ CACHE_BUDGET_GB ?= 4096
 # this and stays single-threaded, which is what its comparison is built on.
 QUERY_THREADS ?= $(shell nproc 2>/dev/null || echo 1)
 
+# Builds the index a scale run queries, from the corpus registry. Same
+# arguments as bench-scale; see scripts/index-scale.sh.
+index-scale:
+	@test "$(origin CORPUS_NAME)" != file || { echo "CORPUS_NAME is required (e.g. webcrawl)"; exit 1; }
+	@scripts/index-scale.sh
+
 bench-scale: QUERIES := queries-full.txt
 bench-scale: COMMANDS := TOP_10 TOP_100 TOP_1000 TOP_100_COUNT COUNT
 bench-scale:
 	@test -n "$(INDEX_URI)" || { echo "INDEX_URI is required (e.g. gs://bucket/prefix)"; exit 1; }
-	@test -n "$(CORPUS_NAME)" || { echo "CORPUS_NAME is required (e.g. webcrawl)"; exit 1; }
+	@test "$(origin CORPUS_NAME)" != file || { echo "CORPUS_NAME is required (e.g. webcrawl)"; exit 1; }
 	@test -n "$(SCALE)" || { echo "SCALE is required (e.g. 1B)"; exit 1; }
-	@case "$(SCALE)" in 1M|100M|1B|10B|100B|1T) ;; \
-	  *) echo "SCALE must be one of 1M 100M 1B 10B 100B 1T (got '$(SCALE)')"; exit 1 ;; esac
+	@python3 src/corpora.py docs --corpus $(CORPUS_NAME) --scale $(SCALE) > /dev/null
 	@echo "--- Benchmarking $(CORPUS_NAME) at $(SCALE) against $(INDEX_URI) ---"
 	@# The index is not on local disk, so its size has to be asked for rather
 	@# than measured. Failure is fine: the page omits what it does not know.
@@ -103,6 +111,7 @@ bench-scale:
 	 INFINO_BENCH_QUERY_MODE=disk \
 	 BENCH_QUERY_THREADS=$(QUERY_THREADS) \
 	 RESULTS_PATH=results-$(CORPUS_NAME)-$(SCALE).json \
+	 INFINO_BENCH_BUILD_STATS=$(if $(wildcard build-$(CORPUS_NAME)-$(SCALE).json),build-$(CORPUS_NAME)-$(SCALE).json) \
 	 INFINO_BENCH_INDEX_BYTES="$(INDEX_BYTES)" \
 	 python3 src/client.py $(QUERIES) $(SCALE_ENGINES)
 	@echo "--- Wrote results-$(CORPUS_NAME)-$(SCALE).json ---"

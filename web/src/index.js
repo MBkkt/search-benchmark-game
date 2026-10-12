@@ -21,6 +21,13 @@ function formatBytes(n) {
   return (i === 0 ? v.toFixed(0) : v.toFixed(2)) + " " + units[i];
 }
 
+// Whole seconds as "45 s", "12 min" or "6.7 h": a build is read at a glance.
+function formatDuration(secs) {
+  if (secs < 120) return Math.round(secs) + " s";
+  if (secs < 7200) return Math.round(secs / 60) + " min";
+  return (secs / 3600).toFixed(1) + " h";
+}
+
 function numberWithCommas(x) {
   x = x.toString();
   let pattern = /(-?\d+)(\d{3})/
@@ -243,6 +250,16 @@ function RunProvenance({ data }) {
   if (run.started_utc) {
     rows.push(["Run", run.started_utc.replace("T", " ").replace("+00:00", "") + " UTC"]);
   }
+  // Present only when this run built the index it queried (a scale build).
+  if (run.build) {
+    const b = run.build;
+    const parts = [];
+    if (b.ingest_secs != null) parts.push("ingest " + formatDuration(b.ingest_secs));
+    if (b.compact_secs != null) parts.push("compaction " + formatDuration(b.compact_secs));
+    if (b.superfiles != null) parts.push(numberWithCommas(b.superfiles) + (b.superfiles === 1 ? " superfile" : " superfiles"));
+    if (b.index_bytes != null) parts.push(formatBytes(b.index_bytes) + " in object storage");
+    if (parts.length) rows.push(["Index build", parts.join(", ")]);
+  }
   if (rows.length === 0) return null;
   return (
     <div className="headline" style={{ marginTop: "2rem", marginBottom: "2.5rem" }}>
@@ -450,8 +467,9 @@ class Benchmark extends React.Component {
           engine_data.variation = (engine_data.min - min_microsecs) / min_microsecs;
         }
       }
-      if (min_engine != null) {
-        // Only useful if at least one engine supports this query 
+      // Only useful when two engines answered: a lone engine is both the
+      // fastest and the slowest, and would be shaded as the slowest.
+      if (min_engine != null && min_engine !== max_engine) {
         query_data[min_engine].className = "fastest";
         query_data[max_engine].className = "slowest";
       }

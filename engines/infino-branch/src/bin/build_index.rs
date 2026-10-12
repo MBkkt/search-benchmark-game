@@ -6,17 +6,24 @@
 //! incrementally (bounded build memory). After ingest, `optimize()` compacts
 //! all segments into one, matching the single-segment shape that tantivy and
 //! Lucene produce — so query-path fan-out overhead is equivalent.
+//!
+//! A scale build (scripts/index-scale.sh) sets `INFINO_BENCH_MULTI_SUPERFILE=1`:
+//! past a few million documents the index no longer fits one superfile, and
+//! the comparison there is between whole tables, not segments. It also sets
+//! `INFINO_BENCH_BUILD_STATS` to a path, which receives what the build cost.
 
 use std::env;
 use std::io::{self, BufRead};
 use std::sync::Arc;
-use std::time::Duration;
+use std::fs;
+use std::time::{Duration, Instant};
 
 use arrow_array::{LargeStringArray, RecordBatch};
 use infino::storage::StorageProvider;
 use infino::supertable::Supertable;
 use infino::{CompactionSettings, GcSettings, OptimizeOptions};
 use serde::Deserialize;
+use serde_json::json;
 
 /// Large enough that the entire Wikipedia BM25 index fits in one output segment.
 const COMPACT_TARGET_MB: u64 = 8 * 1024;
@@ -38,6 +45,7 @@ fn main() {
     let mut writer = st.writer().expect("acquire writer");
     let schema = infino_bench::schema();
 
+    let started = Instant::now();
     let mut buf: Vec<String> = Vec::with_capacity(BATCH);
     let mut total: u64 = 0;
     let stdin = io::stdin();
@@ -63,8 +71,10 @@ fn main() {
 
     writer.commit().expect("commit");
     drop(writer);
-    eprintln!("indexed {total} docs into the supertable");
+    let ingest_secs = started.elapsed().as_secs_f64();
+    eprintln!("indexed {total} docs into the supertable in {ingest_secs:.0}s");
 
+    let compact_started = Instant::now();
     eprintln!("compacting…");
     st.optimize(
         &OptimizeOptions::compact(CompactionSettings {
@@ -78,7 +88,8 @@ fn main() {
         }),
     )
     .expect("optimize");
-    eprintln!("compact done");
+    let compact_secs = compact_started.elapsed().as_secs_f64();
+    eprintln!("compact done in {compact_secs:.0}s");
 
     // Report how many superfiles the table compacted to. The query path fans
     // out one work unit per superfile, so single-threaded latency (and the
@@ -87,7 +98,17 @@ fn main() {
     let reader = st.reader().expect("open reader after compact");
     let n_superfiles = reader.manifest().superfiles.len();
     eprintln!("SUPERFILE_COUNT after compact: {n_superfiles}");
-    if n_superfiles != 1 {
+    if let Ok(stats_path) = env::var("INFINO_BENCH_BUILD_STATS") {
+        let stats = json!({
+            "docs": total,
+            "ingest_secs": ingest_secs.round(),
+            "compact_secs": compact_secs.round(),
+            "superfiles": n_superfiles,
+        });
+        fs::write(&stats_path, stats.to_string()).expect("write build stats");
+    }
+    let multi_superfile = env::var("INFINO_BENCH_MULTI_SUPERFILE").as_deref() == Ok("1");
+    if n_superfiles != 1 && !multi_superfile {
         // Fail hard: if compaction didn't reach a single superfile (e.g. it ran
         // out of memory and left the ingest segments in place), the query path
         // would fan out over several units single-threaded and publish a

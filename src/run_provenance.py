@@ -17,17 +17,7 @@ import os
 from datetime import datetime, timezone
 from os import path
 
-
-# Scale shorthand to a document count. One table, so the URL segment and the
-# number of documents cannot disagree.
-SCALES = {
-    "1M": 1_000_000,
-    "100M": 100_000_000,
-    "1B": 1_000_000_000,
-    "10B": 10_000_000_000,
-    "100B": 100_000_000_000,
-    "1T": 1_000_000_000_000,
-}
+from corpora import SCALES
 
 
 def _line_count(file_path):
@@ -68,11 +58,17 @@ def run_provenance(query_path, commands, started_utc):
             if scale in SCALES:
                 corpus["docs"] = SCALES[scale]
         run["corpus"] = corpus
+        build = _build_stats()
+        if build:
+            run["build"] = build
         return run
 
     corpus_path = os.environ.get("CORPUS")
     if corpus_path:
-        corpus = {"name": path.basename(corpus_path), "path": corpus_path}
+        # The registry name (corpora.py) when the run came through the
+        # Makefile, which always sets one; the file name otherwise.
+        name = os.environ.get("CORPUS_NAME") or path.basename(corpus_path)
+        corpus = {"name": name, "path": corpus_path}
         docs = _line_count(corpus_path)
         if docs is not None:
             corpus["docs"] = docs
@@ -83,6 +79,26 @@ def run_provenance(query_path, commands, started_utc):
         run["corpus"] = corpus
 
     return run
+
+
+def _build_stats():
+    """What building the queried index cost, when the run built it.
+
+    A scale build writes these beside its results (scripts/index-scale.sh);
+    a run against an index built some other way has none, and says nothing.
+    Stats left behind by a build of some other index are not this run's.
+    """
+    stats_path = os.environ.get("INFINO_BENCH_BUILD_STATS")
+    if not stats_path:
+        return None
+    try:
+        with open(stats_path) as f:
+            stats = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if stats.get("index") != os.environ.get("INFINO_BENCH_INDEX_URI"):
+        return None
+    return stats
 
 
 def collect(query_path, commands, started_utc):
