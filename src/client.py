@@ -106,6 +106,14 @@ if __name__ == "__main__":
     engines = sys.argv[2:]
     queries = list(read_queries(query_path))
 
+    # Say what is about to be measured, before hours are spent measuring it:
+    # which engine build answers, and the settings that quietly change what the
+    # answer means. Never fatal, like everything else in run_provenance.
+    for line in run_provenance.describe(
+        run_provenance.collect(query_path, None, started_utc)
+    ):
+        print("--- %s" % line, file=sys.stderr)
+
     details = {}
     for engine in engines:
       dirname = os.path.split(os.path.abspath(__file__))[0]

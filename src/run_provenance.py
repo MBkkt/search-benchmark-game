@@ -14,6 +14,7 @@ the page renders whatever is present.
 
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from os import path
 
@@ -40,6 +41,13 @@ def run_provenance(query_path, commands, started_utc):
     }
     if commands:
         run["commands"] = list(commands)
+
+    engines = _engine_builds()
+    if engines:
+        run["engines"] = engines
+    reader = _reader_settings()
+    if reader:
+        run["reader"] = reader
 
     # A scale run queries an index that already exists, so there is no
     # corpus.json to measure: the corpus is named rather than counted, and the
@@ -79,6 +87,116 @@ def run_provenance(query_path, commands, started_utc):
         run["corpus"] = corpus
 
     return run
+
+
+def _engine_commit(engine_dir):
+    """The commit of the checkout an engine path-depends on, if it has one.
+
+    An engine whose dependency is a pinned version from the registry has
+    nothing to report: the bytes it compiled against cannot move. One that
+    path-depends on a checkout can be built from any commit, and nothing else
+    in a results file says which.
+    """
+    manifest = path.join(engine_dir, "Cargo.toml")
+    try:
+        with open(manifest) as f:
+            lines = [l for l in f if l.startswith("infino ") or l.startswith("infino=")]
+    except OSError:
+        return None
+    dep_path = None
+    for line in lines:
+        marker = 'path = "'
+        if marker in line:
+            dep_path = line.split(marker, 1)[1].split('"', 1)[0]
+            break
+    if not dep_path:
+        return None
+    checkout = path.normpath(path.join(engine_dir, dep_path))
+    try:
+        done = subprocess.run(
+            ["git", "-C", checkout, "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = done.stdout.strip()
+    if done.returncode != 0 or not sha:
+        return None
+    out = {"commit": sha, "checkout": checkout}
+    try:
+        dirty = subprocess.run(
+            ["git", "-C", checkout, "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if dirty.returncode == 0 and dirty.stdout.strip():
+            out["dirty"] = True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return out
+
+
+def _engine_builds():
+    """Per engine, the commit it was built from, for engines that can move."""
+    root = path.dirname(path.dirname(path.abspath(__file__)))
+    engines_dir = path.join(root, "engines")
+    out = {}
+    try:
+        names = sorted(os.listdir(engines_dir))
+    except OSError:
+        return out
+    for name in names:
+        built = _engine_commit(path.join(engines_dir, name))
+        if built:
+            out[name] = built
+    return out
+
+
+def _reader_settings():
+    """Run settings that change what is measured without changing the code.
+
+    The disk-cache budget is the one that bites: left unset, the engine uses
+    its own modest default, and an index far larger than that is re-fetched
+    from object storage on every query. The run still succeeds and the numbers
+    describe a cache miss rather than the engine.
+    """
+    out = {}
+    for key, name in (
+        ("INFINO_BENCH_CACHE_BUDGET_GB", "cache_budget_gb"),
+        ("INFINO_BENCH_CACHE_DIR", "cache_dir"),
+        ("BENCH_QUERY_THREADS", "query_threads"),
+        ("INFINO_BENCH_QUERY_MODE", "query_mode"),
+    ):
+        value = os.environ.get(key)
+        if value:
+            out[name] = value
+    if os.environ.get("INFINO_BENCH_INDEX_URI") and "cache_budget_gb" not in out:
+        out["cache_budget_gb"] = "unset"
+    return out
+
+
+def describe(run):
+    """One human-readable line per fact worth seeing before a run starts."""
+    lines = []
+    for engine, built in sorted(run.get("engines", {}).items()):
+        dirty = ", dirty" if built.get("dirty") else ""
+        lines.append("%s: built from %s%s" % (engine, built["commit"], dirty))
+    reader = run.get("reader", {})
+    if reader:
+        lines.append("reader: " + ", ".join(
+            "%s=%s" % (k, v) for k, v in sorted(reader.items())
+        ))
+    if reader.get("cache_budget_gb") == "unset":
+        lines.append(
+            "warning: no disk-cache budget set, so the engine's own default "
+            "applies. An index larger than that default is re-fetched from "
+            "object storage on every query, and these timings will describe "
+            "that rather than the engine."
+        )
+    return lines
 
 
 def _build_stats():
