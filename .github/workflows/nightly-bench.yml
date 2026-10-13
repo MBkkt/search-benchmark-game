@@ -11,7 +11,9 @@ name: Nightly benchmark
 # Everything cloud-specific lives in scripts/bench-cloud.sh (runner side) and
 # scripts/cloud-shim-{gcp,aws}.sh (box side), so this workflow stays one path.
 # The nightly benches two infino columns: `infino-0.11.2` (the published crate)
-# and `infino-main` (the tip of infino-ai/infino main).
+# and `infino-main` (the tip of infino-ai/infino main), plus `infino-platform`
+# (infino on the hosted platform) when the box can read the platform's
+# credentials from the secret store; see README.
 #
 # workflow_dispatch accepts an optional `infino_branch` input. When set to
 # anything other than "main", the dispatched ref is benched as the

@@ -11,10 +11,21 @@
 #   cloud_get  <name> <local>   fetch an object from the bench bucket
 #   cloud_put  <local> <name>   upload an object to the bench bucket
 #   cloud_signal <ok|error>     upload the run log, then publish the verdict
+#   cloud_secret <name>         print a secret's value; non-zero if unavailable
 
 BENCH_USER="bench"
 BUCKET="gs://sbg-bench-corpus"
 DONE_OBJECT="$BUCKET/signal/done"
+
+# Secrets live in Secret Manager in the CI project, readable by the box's
+# service account. Nothing secret goes through the startup script, which is
+# instance metadata.
+SECRET_PROJECT="infino-dev-ci"
+
+cloud_secret() {
+  gcloud secrets versions access latest --secret="$1" --project="$SECRET_PROJECT" \
+    --quiet 2>/dev/null
+}
 
 cloud_install_deps() {
   # Rocky 9 (chosen over Debian/Ubuntu because it keeps this dnf line a near

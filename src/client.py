@@ -305,4 +305,9 @@ if __name__ == "__main__":
     if failed:
         for engine, reason in failed.items():
             print("FAILED %s: %s" % (engine, reason))
-        sys.exit(1)
+        # A hosted engine depends on a service outside this run, so losing it
+        # costs its column (recorded under run.failed_engines), not the run:
+        # the local engines' results are still published.
+        if any(engine not in HOSTED_ENGINES for engine in failed):
+            sys.exit(1)
+        print("only hosted engines failed; the local results stand")

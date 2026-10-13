@@ -164,13 +164,36 @@ elif [ "$IS_BRANCH_RUN" = "true" ]; then
   MAKE_ARGS+=(ENGINES=infino-branch)
 fi
 
+# The hosted platform column, on the official main nightly only: it measures
+# the platform service, which no branch run changes. Its credentials come from
+# the cloud's secret store (cloud_secret), never the startup script, which is
+# instance metadata. Without them, or if the platform's build or table fails,
+# the column is skipped and the local engines are benched as before. The table
+# is loaded once and reused while its row count matches the corpus.
+BENCH_ARGS=()
+if [ "$IS_BRANCH_RUN" = "false" ]; then
+  if host=$(cloud_secret sbg-infino-host) && key=$(cloud_secret sbg-infino-api-key) \
+      && [ -n "$host" ] && [ -n "$key" ]; then
+    (umask 077; printf 'INFINO_HOST=%s\nINFINO_API_KEY=%s\n' "$host" "$key" > .env)
+    unset host key
+    export INFINO_BENCH_TABLE=sbg_nightly
+    if make ENGINES=infino-platform compile index; then
+      BENCH_ARGS+=(PLATFORM_ENGINES=infino-platform)
+    else
+      echo "warning: infino-platform failed to build or load its table; skipping its column"
+    fi
+  else
+    echo "infino-platform: no credentials in the secret store; skipping its column"
+  fi
+fi
+
 # compile + index once, then run both bench modes without re-indexing.
 # bench-full runs first: writes results.json then renames to results-full.json.
 # bench runs second: writes a fresh results.json (turbopuffer comparison).
 make "${MAKE_ARGS[@]}" compile
 make "${MAKE_ARGS[@]}" index
-make "${MAKE_ARGS[@]}" bench-full   # full 962-query standard → results-full.json
-make "${MAKE_ARGS[@]}" bench        # turbopuffer comparison  → results.json
+make "${MAKE_ARGS[@]}" "${BENCH_ARGS[@]}" bench-full   # full 962-query standard → results-full.json
+make "${MAKE_ARGS[@]}" "${BENCH_ARGS[@]}" bench        # turbopuffer comparison  → results.json
 
 # only upload to canonical keys for the official repo on main; everything else
 # uses a run-specific key so nightly results are never clobbered

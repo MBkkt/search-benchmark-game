@@ -166,16 +166,45 @@ table is `INFINO_BENCH_TABLE`, defaulting to `<corpus>_<scale>` on a scale run
   (or the scale) and fails on a mismatch.
 - The platform allows 20 requests a second per account. `client.py` paces this
   engine at `HOSTED_REQUESTS_PER_SEC` (default 18), outside the timed window.
-  A rate-limited request is retried after 1s; any other error stops the engine.
+  A rate-limited request is retried after 1s, and a gateway error
+  (502/503/504) or dropped connection up to 3 times; any other error stops the
+  engine.
 - If an engine exits, or this engine doesn't answer within
   `QUERY_TIMEOUT_SECS` (default 600), it is dropped from the results and listed
-  under `run.failed_engines`, and the run exits non-zero.
+  under `run.failed_engines`. A failed local engine makes the run exit non-zero;
+  a failed hosted engine only loses its own column.
 - Accounts have a row limit (10M by default), so 100M and 1B tables need a
   higher limit.
 
 ```sh
 make index bench-full ENGINES=infino-platform CORPUS=$PWD/corpus.json
 ```
+
+The official main nightly adds this column (`PLATFORM_ENGINES=infino-platform`)
+when the bench box can read the platform's credentials from the cloud's secret
+store; without them it is skipped and the local engines are benched as before.
+Branch runs never include it. The nightly benches table `sbg_nightly`, which
+the first run loads (about 25 minutes) and later runs reuse. The column adds
+about an hour to the nightly, mostly the paced queries.
+
+One-time setup, GCP (the default cloud). Secret Manager must be enabled in
+`infino-dev-ci`:
+
+```sh
+printf '%s' 'https://<gateway>/v1/<database>' | gcloud secrets create sbg-infino-host \
+  --project infino-dev-ci --data-file=-
+printf '%s' '<api key>' | gcloud secrets create sbg-infino-api-key \
+  --project infino-dev-ci --data-file=-
+for s in sbg-infino-host sbg-infino-api-key; do
+  gcloud secrets add-iam-policy-binding "$s" --project infino-dev-ci \
+    --member serviceAccount:sbg-bench-vm@infino-dev-ci.iam.gserviceaccount.com \
+    --role roles/secretmanager.secretAccessor
+done
+```
+
+On AWS the same two values are SSM `SecureString` parameters
+`/sbg-bench/sbg-infino-host` and `/sbg-bench/sbg-infino-api-key`, readable by
+the bench box's role (`ssm:GetParameter` and `kms:Decrypt`).
 
 infino is benchmarked on its **optimized paths only**. Commands without a
 first-class implementation return `UNSUPPORTED` rather than falling back to

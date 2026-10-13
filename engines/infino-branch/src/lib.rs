@@ -184,7 +184,26 @@ impl HostedQueries {
         Ok((count, micros))
     }
 
+    /// POST one query. A gateway error (502/503/504) or a dropped connection
+    /// is retried up to 3 times, 1s apart: these are reads, so repeating one is
+    /// safe, and one lost upstream connection would otherwise end the column.
+    /// 429s are retried by `retry_rate_limited`.
     fn post(&self, op: &str, body: &serde_json::Value) -> Result<ureq::Response, infino::InfinoError> {
+        const TRANSIENT_RETRIES: usize = 3;
+        let mut retries = 0;
+        loop {
+            match self.post_once(op, body) {
+                Err(e) if retries < TRANSIENT_RETRIES && is_transient(&e) => {
+                    retries += 1;
+                    eprintln!("{e}; retry {retries} of {TRANSIENT_RETRIES} in 1s");
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+                result => return result,
+            }
+        }
+    }
+
+    fn post_once(&self, op: &str, body: &serde_json::Value) -> Result<ureq::Response, infino::InfinoError> {
         let url = format!("{}/v1/{op}/{}", self.base, self.database);
         retry_rate_limited(|| {
             self.agent
@@ -206,6 +225,16 @@ impl HostedQueries {
                 })
         })
     }
+}
+
+/// Whether `e` is a gateway error or a dropped connection, as `post_once`
+/// words them.
+#[cfg(feature = "hosted")]
+fn is_transient(e: &infino::InfinoError) -> bool {
+    let msg = e.to_string();
+    ["server returned 502", "server returned 503", "server returned 504", "transport error"]
+        .iter()
+        .any(|needle| msg.contains(needle))
 }
 
 /// The platform's query time for one response, in microseconds. A response
