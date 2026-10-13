@@ -6,19 +6,26 @@ body {
   max-width: 1000px;
   margin: 0 auto;
   padding: 30px 10px;
+  // Every digit the same width, so numbers line up down a column.
+  font-variant-numeric: tabular-nums;
 }
 
 .headline {
   margin-bottom: 24px;
 }
 
+// Section headings: the title is the table's header, the hint in brackets
+// after it stays light so it reads as an explanation.
 .headline-title {
-  font-size: 13px;
-  color: #444;
-  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: bold;
+  color: #222;
+  margin-bottom: 12px;
 }
 
 .headline-hint {
+  font-size: 13px;
+  font-weight: normal;
   color: #717171;
 }
 
@@ -33,9 +40,16 @@ body {
   }
 }
 
+// Fixed layout with the same first-column width in every summary table, so an
+// engine's column sits at the same place in each of them.
 .headline-table {
   border-collapse: collapse;
   width: 100%;
+  table-layout: fixed;
+}
+
+.headline-table th:first-child {
+  width: 140px;
 }
 
 .headline-table th,
@@ -68,18 +82,6 @@ body {
   border-top: solid 2px #382373;
 }
 
-.headline-table .hl-base {
-  background-color: #ece9f5;
-}
-
-.headline-table .hl-faster {
-  background-color: #cddccd;
-}
-
-.headline-table .hl-slower {
-  background-color: #e0b8b8;
-}
-
 .headline-table .hl-mean-cell {
   padding: 4px 10px;
 }
@@ -109,27 +111,96 @@ body {
   font-weight: bold;
 }
 
-.hl-mean-faster {
-  color: #2e7d32;
-}
-
-.hl-mean-slower {
-  color: #b23b3b;
-}
-
 .hl-mean-sublabel {
   font-size: 10px;
   font-weight: normal;
   color: #717171;
 }
 
+// The leader of a row is the one thing that should catch the eye: one strong
+// fill, everything else neutral.
+$leader: #1e7b45;
+$leader-soft: #e3f3e8;
+
+.eng-h small {
+  display: block;
+  font-size: 10px;
+  font-weight: normal;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.headline-table td.hl-cell {
+  vertical-align: top;
+}
+
+.headline-table .hl-val {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.headline-table .hl-gap {
+  font-size: 10px;
+  color: #8a8a8a;
+  margin-top: 2px;
+}
+
+$slower: #c62828;
+
+// A plain bar on a light track. The track is the baseline's length (1.00; the
+// 80% matches BAR_BASE in index.js), so a faster engine visibly falls short of
+// it; the fill runs up to the baseline and any part slower than the baseline
+// continues past the track in red.
+.hl-bar {
+  display: flex;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: linear-gradient(to right, #eeeeee 80%, transparent 80%);
+  span {
+    height: 100%;
+    background: #c9c9c9;
+  }
+  .hl-fill { border-radius: 2px 0 0 2px; }
+  .hl-fill:only-child { border-radius: 2px; }
+  .hl-over {
+    background: $slower;
+    border-radius: 0 2px 2px 0;
+  }
+}
+
+.headline-table td.hl-leader {
+  background-color: $leader;
+  color: white;
+  font-weight: bold;
+  .hl-gap { color: white; }
+  .hl-bar { background: linear-gradient(to right, rgba(255, 255, 255, 0.25) 80%, transparent 80%); }
+  .hl-bar .hl-fill { background: white; }
+}
+
+.hl-gap b { color: #555; }
+
+// Runners-up: the same colour as the leader, stepping lighter by place.
+.headline-table td.hl-p2 .hl-bar .hl-fill { background: mix($leader, white, 70%); }
+.headline-table td.hl-p3 .hl-bar .hl-fill { background: mix($leader, white, 40%); }
+.headline-table td.hl-p2 .hl-gap b,
+.headline-table td.hl-p3 .hl-gap b { color: $leader; }
+.headline-table td.hl-leader .hl-gap b { color: white; }
+
+.hl-mean-lead {
+  background: $leader;
+  color: white;
+  padding: 0 6px;
+  border-radius: 3px;
+}
+
 .fastest {
-  background-color: #cddccd;
+  background-color: $leader-soft;
   color: #222;
+  box-shadow: inset 3px 0 0 $leader;
 }
 
 .slowest {
-  background-color: #e0b8b8;
   color: #222;
 }
 
@@ -147,21 +218,73 @@ td:last-child {
   padding-right: 10px;
 }
 
+// The summary rows over the per-query table: a light tint and bold numbers
+// instead of solid blocks, so they read like the tables above.
 .average-row td {
-  width: 70px;
-  padding: 10px;
-  background-color: #382373;
-  color: white;
-  border-bottom: solid 8px white
+  padding: 8px 10px;
+  background-color: #ece9f5;
+  color: #222;
+  font-weight: bold;
+  border-bottom: solid 1px #ddd8ea;
 }
 
 .percentile-row td {
   font-size: 12px;
-  width: 70px;
-  padding: 10px;
-  background-color: grey;
+  padding: 6px 10px;
+  background-color: #f6f5fa;
+  color: #444;
+  border-bottom: solid 1px #ebe8f2;
+}
+
+.average-row td.stat-leader,
+.percentile-row td.stat-leader {
+  background-color: $leader;
   color: white;
-  border-bottom: solid 8px white
+  font-weight: bold;
+}
+
+// The per-query table: header stays on screen while scrolling, rows are
+// tighter and striped, and the row under the pointer is tinted.
+.query-table {
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: white;
+    box-shadow: inset 0 -2px 0 #382373;
+    vertical-align: bottom;
+    font-size: 13px;
+    text-align: right;
+    summary { white-space: nowrap; }
+  }
+  tbody tr:nth-child(even) td.data:not(.fastest) {
+    background-color: #fafafa;
+  }
+  tbody tr:hover td {
+    background-color: #f1eff6;
+  }
+  tbody tr:hover td.fastest {
+    background-color: darken($leader-soft, 6%);
+  }
+}
+
+// The filters belong to the per-query table under them: a divider above
+// separates them from the summary section, and they sit close to the table.
+form {
+  margin: 3rem 0 0.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid #ddd;
+}
+
+// The two filters side by side, each label over its select.
+form fieldset {
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  column-gap: 20px;
+  label { margin-bottom: 4px; }
+  select { margin-bottom: 0; }
 }
 
 ul.details {
@@ -172,7 +295,7 @@ ul.details {
 }
 
 td.data {
-  padding: 1.2rem 1.5rem 0.5rem 1.5rem;
+  padding: 0.6rem 1rem 0.3rem 1rem;
 }
 
 td div.timing {
@@ -180,7 +303,7 @@ td div.timing {
 }
 
 td div.timing-variation {
-  color: red; 
+  color: #8a8a8a;
   font-size: 10px;
   height: 15px;
 }
