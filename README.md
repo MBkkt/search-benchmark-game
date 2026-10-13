@@ -148,11 +148,11 @@ binary and index in the last engine slot, so a fork page can show how much of a
 branch-vs-main delta is measurement position rather than code.
 
 `infino-platform` benchmarks infino on the hosted infino platform. Each query is
-an HTTPS request, so latency includes the network and the platform's gateway;
-it is not comparable to the in-process columns as a measure of the engine
-alone. It builds the `infino-branch` code as a separate crate against the
-published infino 0.11.2 crate with its `remote` feature, so the client matches
-the platform's release and `infino-branch` still builds on older infino refs.
+an HTTPS request, and its latency is the platform's own query time from the
+`x-infino-query-time` response header, so the network and the platform's
+gateway are not counted. It builds the `infino-branch` code as a separate crate
+against the published infino 0.11.2 crate, so the client matches the platform's
+release and `infino-branch` still builds on older infino refs.
 
 Set `INFINO_HOST` (`https://<gateway>/v1/<database>`) and `INFINO_API_KEY`, in
 the environment or in an uncommitted `.env` of plain `KEY=value` lines. The

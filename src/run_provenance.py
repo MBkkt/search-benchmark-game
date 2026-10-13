@@ -71,7 +71,9 @@ def _hosted(engines):
     for engine in engines or ():
         if engine in HOSTED_ENGINES:
             endpoint = os.environ.get("INFINO_HOST") or _env_file_value("INFINO_HOST")
-            entry = {"table": _hosted_table()}
+            # Hosted latency is the platform's own query time from this
+            # response header, not the round trip (see client.py).
+            entry = {"table": _hosted_table(), "timing": "x-infino-query-time"}
             if endpoint:
                 entry["endpoint"] = endpoint
             hosted[engine] = entry

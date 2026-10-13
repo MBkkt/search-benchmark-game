@@ -117,6 +117,111 @@ pub fn retry_rate_limited<T>(
     }
 }
 
+/// The response header the platform reports its query time in, in ms. Hosted
+/// latency is taken from it, so the column measures the platform's query
+/// engine rather than the network and gateway in front of it.
+#[cfg(feature = "hosted")]
+pub const QUERY_TIME_HEADER: &str = "x-infino-query-time";
+
+/// Queries against a hosted table, sent directly rather than through infino's
+/// client, which does not expose response headers. The request bodies are the
+/// ones infino's remote client sends for `bm25_search` and `count`.
+#[cfg(feature = "hosted")]
+pub struct HostedQueries {
+    agent: ureq::Agent,
+    base: String,
+    database: String,
+    table: String,
+    bearer: String,
+}
+
+#[cfg(feature = "hosted")]
+impl HostedQueries {
+    /// `target` is `https://host/v1/db` or `https://host/db`.
+    pub fn new(target: &str, table: &str) -> Self {
+        let uri = target.replacen("/v1/", "/", 1);
+        let uri = uri.trim_end_matches('/');
+        let (base, database) = uri.rsplit_once('/').expect("hosted target names a database");
+        let key = std::env::var("INFINO_API_KEY").expect("INFINO_API_KEY is required");
+        HostedQueries {
+            agent: ureq::AgentBuilder::new().build(),
+            base: base.to_string(),
+            database: database.to_string(),
+            table: table.to_string(),
+            bearer: format!("Bearer {key}"),
+        }
+    }
+
+    /// Run a top-k search; returns the platform's query time in microseconds.
+    pub fn bm25_search(&self, query: &str, k: usize) -> Result<u64, infino::InfinoError> {
+        let body = serde_json::json!({
+            "table_name": self.table, "field_name": COLUMN, "query": query,
+            "k": k, "mode": "or", "projection": null,
+        });
+        let response = self.post("bm25_search", &body)?;
+        let micros = query_time_micros(&response)?;
+        // Drain the Arrow body so the connection can be reused.
+        std::io::Read::read_to_end(&mut response.into_reader(), &mut Vec::new())
+            .map_err(|e| infino::InfinoError::Backend(format!("bm25_search: read body: {e}")))?;
+        Ok(micros)
+    }
+
+    /// Count matches; returns the count and the platform's query time in
+    /// microseconds.
+    pub fn count(&self, query: &str) -> Result<(u64, u64), infino::InfinoError> {
+        let body = serde_json::json!({
+            "table_name": self.table, "field_name": COLUMN, "query": query, "mode": "or",
+        });
+        let response = self.post("count", &body)?;
+        let micros = query_time_micros(&response)?;
+        let json: serde_json::Value = response
+            .into_json()
+            .map_err(|e| infino::InfinoError::Backend(format!("count: read body: {e}")))?;
+        let count = json
+            .get("count")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| infino::InfinoError::Backend("count response missing `count`".into()))?;
+        Ok((count, micros))
+    }
+
+    fn post(&self, op: &str, body: &serde_json::Value) -> Result<ureq::Response, infino::InfinoError> {
+        let url = format!("{}/v1/{op}/{}", self.base, self.database);
+        retry_rate_limited(|| {
+            self.agent
+                .post(&url)
+                .set("Authorization", &self.bearer)
+                .set("Accept", "application/vnd.apache.arrow.stream")
+                .send_json(body.clone())
+                .map_err(|e| match e {
+                    ureq::Error::Status(code, r) => {
+                        let trace = r.header("x-infino-trace-id").unwrap_or("-").to_string();
+                        let body = r.into_string().unwrap_or_default();
+                        infino::InfinoError::Backend(format!(
+                            "{op}: server returned {code} (trace {trace}): {body}"
+                        ))
+                    }
+                    ureq::Error::Transport(t) => {
+                        infino::InfinoError::Backend(format!("{op}: transport error: {t}"))
+                    }
+                })
+        })
+    }
+}
+
+/// The platform's query time for one response, in microseconds. A response
+/// without the header is an error: falling back to wall time would mix two
+/// different measurements in one column.
+#[cfg(feature = "hosted")]
+fn query_time_micros(response: &ureq::Response) -> Result<u64, infino::InfinoError> {
+    let raw = response.header(QUERY_TIME_HEADER).ok_or_else(|| {
+        infino::InfinoError::Backend(format!("response has no {QUERY_TIME_HEADER} header"))
+    })?;
+    let ms: f64 = raw.trim().parse().map_err(|_| {
+        infino::InfinoError::Backend(format!("{QUERY_TIME_HEADER} is not a number: {raw:?}"))
+    })?;
+    Ok((ms * 1000.0).round() as u64)
+}
+
 /// The number of documents the hosted table should hold: from
 /// `INFINO_BENCH_EXPECTED_DOCS`, else the scale (`1B` = 1,000,000,000), else
 /// the line count of `CORPUS`. `None` if none of these is available.

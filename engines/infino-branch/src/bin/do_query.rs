@@ -51,31 +51,37 @@ fn main() {
         // query string itself; infino parses it natively.
         let mode = BoolMode::Or;
 
-        let result = match command {
+        // A hosted answer carries the platform's own query time (us), summed
+        // over the requests that answered it; local answers carry none.
+        let result: Result<(usize, u64), InfinoError> = match command {
             _ if query.split_whitespace().all(|t| t.starts_with('-') || t.trim().is_empty()) => {
                 // negation-only: no positive terms to rank
-                Ok(0usize)
+                Ok((0, 0))
             }
-            _ if query.trim().is_empty() => Ok(0usize),
+            _ if query.trim().is_empty() => Ok((0, 0)),
             "TOP_10" | "TOP_100" | "TOP_1000" => index
                 .bm25_search(query, top_k(command), search_opts(mode))
-                .map(|_| 1),
+                .map(|us| (1, us)),
             // Plain COUNT: native posting-list traversal, no scoring.
-            "COUNT" => index.count(query, mode).map(|n| n as usize),
+            "COUNT" => index.count(query, mode).map(|(n, us)| (n as usize, us)),
             // TOP_k_COUNT: fetch the top-k results AND count all matches —
             // two passes, matching what engines like Lucene do for this command.
             "TOP_1_COUNT" | "TOP_5_COUNT" | "TOP_10_COUNT"
             | "TOP_100_COUNT" | "TOP_1000_COUNT" => index
                 .bm25_search(query, top_k_count(command), search_opts(mode))
-                .and_then(|_| index.count(query, mode))
-                .map(|n| n as usize),
+                .and_then(|search_us| {
+                    index.count(query, mode).map(|(n, count_us)| (n as usize, search_us + count_us))
+                }),
             _ => {
                 println!("UNSUPPORTED");
                 continue;
             }
         };
         match result {
-            Ok(count) => println!("{count}"),
+            // The harness times a hosted query by the platform's reported
+            // query time instead of the round trip (see src/client.py).
+            Ok((count, us)) if index.is_hosted() => println!("{count}\t{us}"),
+            Ok((count, _)) => println!("{count}"),
             // Exit rather than print 0, so a failed request is never
             // recorded as a result.
             Err(e) if index.is_hosted() => {
@@ -140,7 +146,7 @@ fn open_local(target: &str) -> SupertableReader {
 enum Index {
     Local(SupertableReader),
     #[cfg(feature = "hosted")]
-    Hosted(infino::Supertable),
+    Hosted(infino_bench::HostedQueries),
 }
 
 /// Open the hosted table. Exits if its row count differs from the expected
@@ -167,9 +173,11 @@ fn open_hosted(target: &str) -> Index {
              row count not checked"
         ),
     }
-    Index::Hosted(
-        infino_bench::retry_rate_limited(|| conn.open_table(&table)).expect("open hosted table"),
-    )
+    // Open through infino's client so a missing table fails here, then
+    // query directly: infino's client does not expose the query-time header.
+    infino_bench::retry_rate_limited(|| conn.open_table(&table)).expect("open hosted table");
+    eprintln!("hosted: timing each query by the {} response header", infino_bench::QUERY_TIME_HEADER);
+    Index::Hosted(infino_bench::HostedQueries::new(target, &table))
 }
 
 #[cfg(not(feature = "hosted"))]
@@ -178,22 +186,27 @@ fn open_hosted(target: &str) -> Index {
 }
 
 impl Index {
-    fn bm25_search(&self, query: &str, k: usize, opts: Bm25SearchOptions) -> Result<(), InfinoError> {
+    /// Returns the platform's query time in us for a hosted index, else 0.
+    /// The hosted request always uses BoolMode::Or, the only mode the bench
+    /// sends.
+    fn bm25_search(&self, query: &str, k: usize, opts: Bm25SearchOptions) -> Result<u64, InfinoError> {
         match self {
-            Index::Local(r) => r.bm25_search(COLUMN, query, k, opts, None).map(|_| ())?,
+            Index::Local(r) => {
+                r.bm25_search(COLUMN, query, k, opts, None)?;
+                Ok(0)
+            }
             #[cfg(feature = "hosted")]
-            Index::Hosted(t) => infino_bench::retry_rate_limited(|| {
-                t.bm25_search(COLUMN, query, k, opts, None).map(|_| ())
-            })?,
+            Index::Hosted(h) => h.bm25_search(query, k),
         }
-        Ok(())
     }
 
-    fn count(&self, query: &str, mode: BoolMode) -> Result<u64, InfinoError> {
+    /// The match count, and the platform's query time in us for a hosted
+    /// index (else 0).
+    fn count(&self, query: &str, mode: BoolMode) -> Result<(u64, u64), InfinoError> {
         match self {
-            Index::Local(r) => Ok(r.count(COLUMN, query, mode)? as u64),
+            Index::Local(r) => Ok((r.count(COLUMN, query, mode)? as u64, 0)),
             #[cfg(feature = "hosted")]
-            Index::Hosted(t) => infino_bench::retry_rate_limited(|| t.count(COLUMN, query, mode)),
+            Index::Hosted(h) => h.count(query),
         }
     }
 

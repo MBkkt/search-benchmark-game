@@ -1,8 +1,8 @@
 [
   "infino on the hosted infino platform, queried over its REST API.",
-  "Same code as infino-branch, built against the published infino 0.11.2 crate with its remote client: each query is an HTTPS request to /v1/bm25_search or /v1/count (TOP_k_COUNT sends one of each).",
-  "Latency is measured end to end from the bench host, so it includes the network and the platform's gateway. It does not measure the engine alone.",
-  "Queries are paced to stay under the platform's limit of 20 requests a second. The pause is not counted as latency.",
+  "Same code as infino-branch, built against the published infino 0.11.2 crate: each query is an HTTPS request to /v1/bm25_search or /v1/count (TOP_k_COUNT sends one of each).",
+  "Latency is the platform's own query time, from the x-infino-query-time response header (TOP_k_COUNT adds both requests). It excludes the network and the platform's gateway, so it measures the engine as the platform runs it.",
+  "Queries are paced to stay under the platform's limit of 20 requests a second.",
   "The platform builds and compacts the table itself; it is not compacted to a single superfile.",
   "Same full-text setup as infino-branch: standard analyzer, positions on, text not stored, BM25 with k1=1.2 and b=0.75, table-wide statistics.",
   "Supports +must, plain should, -must-not and quoted phrases. *_FF is unsupported."

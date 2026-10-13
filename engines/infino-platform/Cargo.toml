@@ -22,7 +22,7 @@ path = "../infino-branch/src/bin/do_query.rs"
 
 [features]
 default = ["hosted"]
-hosted = []
+hosted = ["dep:ureq"]
 
 [dependencies]
 # The published crate, pinned to the release the hosted platform runs, so the
@@ -35,6 +35,9 @@ rayon = "1"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The hosted query path sends requests itself to read the platform's
+# query-time header; same client and TLS as infino's `remote` feature.
+ureq = { version = "2", features = ["json", "tls"], optional = true }
 
 [profile.release]
 lto = true

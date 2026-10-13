@@ -83,7 +83,12 @@ class SearchClient:
         recv = recv.strip()
         if recv == b"UNSUPPORTED":
             return None
-        return int(recv)
+        if self.answers is None:
+            return int(recv)
+        # A hosted engine answers "<count>\t<us>": the platform's own query
+        # time, which is what its column reports (see drive()).
+        count, reported_us = recv.split(b"\t")
+        return int(count), int(reported_us)
 
     def close(self):
         try:
@@ -114,6 +119,10 @@ def drive(queries, client, command, interval=0.0):
         count = client.query(query.query, command)
         stop = time.monotonic()
         duration = int((stop - start) * 1e6)
+        # A hosted engine is timed by the platform's reported query time, not
+        # the round trip, which is mostly network and gateway.
+        if isinstance(count, tuple):
+            count, duration = count
         yield (query, count, duration)
 
 class Query(object):
