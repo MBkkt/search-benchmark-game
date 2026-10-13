@@ -33,7 +33,52 @@ def _line_count(file_path):
         return None
 
 
-def run_provenance(query_path, commands, started_utc, engines=None):
+# Same list as client.py.
+HOSTED_ENGINES = ("infino-platform",)
+
+
+def _env_file_value(key):
+    """`key` from the repo's .env, or None."""
+    env_path = path.join(path.dirname(path.dirname(path.abspath(__file__))), ".env")
+    try:
+        with open(env_path) as f:
+            for line in f:
+                name, sep, value = line.strip().partition("=")
+                if sep and name.strip() == key:
+                    return value.strip()
+    except OSError:
+        pass
+    return None
+
+
+def _hosted_table():
+    """The hosted table name; same rule as `hosted_table` in
+    engines/infino-branch/src/lib.rs."""
+    name = os.environ.get("INFINO_BENCH_TABLE")
+    if name:
+        return name
+    corpus = os.environ.get("INFINO_BENCH_CORPUS_NAME")
+    scale = os.environ.get("INFINO_BENCH_SCALE")
+    if corpus and scale:
+        return ("%s_%s" % (corpus, scale)).lower()
+    return "sbg"
+
+
+def _hosted(engines):
+    """The endpoint and table each hosted engine read. Hosted engines don't
+    read the corpus file or INDEX_URI recorded above."""
+    hosted = {}
+    for engine in engines or ():
+        if engine in HOSTED_ENGINES:
+            endpoint = os.environ.get("INFINO_HOST") or _env_file_value("INFINO_HOST")
+            entry = {"table": _hosted_table()}
+            if endpoint:
+                entry["endpoint"] = endpoint
+            hosted[engine] = entry
+    return hosted
+
+
+def run_provenance(query_path, commands, started_utc, engines=None, failed=None):
     """The `run` block written beside details/index_sizes/results."""
     run = {
         "started_utc": started_utc,
@@ -41,6 +86,11 @@ def run_provenance(query_path, commands, started_utc, engines=None):
     }
     if commands:
         run["commands"] = list(commands)
+    hosted = _hosted(engines)
+    if hosted:
+        run["hosted"] = hosted
+    if failed:
+        run["failed_engines"] = dict(failed)
 
     builds = _engine_builds(engines)
     if builds:
@@ -229,14 +279,14 @@ def _build_stats():
     return stats
 
 
-def collect(query_path, commands, started_utc, engines=None):
+def collect(query_path, commands, started_utc, engines=None, failed=None):
     """`run_provenance`, with any failure reduced to an error string.
 
     The caller is a bench run that has already spent hours; it must finish and
     write its results whatever happens here.
     """
     try:
-        return run_provenance(query_path, commands, started_utc, engines)
+        return run_provenance(query_path, commands, started_utc, engines, failed)
     except Exception as e:  # noqa: BLE001 - deliberately total
         return {"error": "run metadata collection failed: %s" % e}
 

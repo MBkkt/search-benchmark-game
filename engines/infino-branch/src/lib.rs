@@ -15,9 +15,140 @@ use infino::superfile::builder::FtsConfig;
 use infino::supertable::manifest::list::PartitionStrategy;
 use infino::supertable::reader_cache::{DiskCacheConfig, DiskCacheStore};
 use infino::supertable::{Consistency, SupertableOptions};
+#[cfg(feature = "hosted")]
+use infino::{ConnectOptions, Connection, FtsField, IndexSpec};
 
 /// The single indexed full-text column.
 pub const COLUMN: &str = "text";
+
+/// Whether `target` is a hosted platform database (`https://host/<database>`).
+/// infino itself rejects `http://` for any host but localhost.
+pub fn is_hosted(target: &str) -> bool {
+    target.starts_with("https://") || target.starts_with("http://")
+}
+
+/// Exit with an error: this build cannot query the hosted platform.
+#[cfg(not(feature = "hosted"))]
+pub fn no_hosted_support(target: &str) -> ! {
+    eprintln!(
+        "{target} is a hosted database, and this build has no hosted client; \
+         serve it through engines/infino-platform"
+    );
+    std::process::exit(1);
+}
+
+/// The hosted table to use: `INFINO_BENCH_TABLE` if set, else
+/// `<corpus>_<scale>` on a scale run (`webcrawl_1b`), else `sbg`.
+#[cfg(feature = "hosted")]
+pub fn hosted_table() -> String {
+    if let Some(name) = std::env::var("INFINO_BENCH_TABLE").ok().filter(|s| !s.is_empty()) {
+        return name;
+    }
+    match (
+        std::env::var("INFINO_BENCH_CORPUS_NAME"),
+        std::env::var("INFINO_BENCH_SCALE"),
+    ) {
+        (Ok(corpus), Ok(scale)) => format!("{corpus}_{scale}").to_lowercase(),
+        _ => "sbg".to_string(),
+    }
+}
+
+/// Connect to a hosted database. infino reads the API key from
+/// `INFINO_API_KEY`. Accepts `https://host/v1/db` or `https://host/db`; infino
+/// expects the latter.
+#[cfg(feature = "hosted")]
+pub fn connect_hosted(target: &str) -> Connection {
+    let uri = target.replacen("/v1/", "/", 1);
+    infino::connect_with(&uri, ConnectOptions::default()).expect("connect to hosted database")
+}
+
+/// The hosted table's full-text index; matches the FTS config in `options`.
+#[cfg(feature = "hosted")]
+pub fn index_spec() -> IndexSpec {
+    IndexSpec::new().fts(
+        FtsField::new(COLUMN)
+            .analyzer("standard")
+            .positions(true)
+            .stored(false),
+    )
+}
+
+/// Number of rows in the hosted table.
+#[cfg(feature = "hosted")]
+pub fn hosted_doc_count(conn: &Connection, table: &str) -> Result<u64, infino::InfinoError> {
+    use arrow_array::{Array, Int64Array, UInt64Array};
+    let batches = conn.query_sql(&format!("SELECT COUNT(*) FROM \"{table}\""))?;
+    let column = batches
+        .first()
+        .filter(|b| b.num_rows() == 1)
+        .map(|b| b.column(0).clone())
+        .ok_or_else(|| infino::InfinoError::Backend("COUNT(*) returned no row".into()))?;
+    if let Some(a) = column.as_any().downcast_ref::<Int64Array>() {
+        return Ok(a.value(0) as u64);
+    }
+    if let Some(a) = column.as_any().downcast_ref::<UInt64Array>() {
+        return Ok(a.value(0));
+    }
+    Err(infino::InfinoError::Backend(format!(
+        "COUNT(*) returned {:?}",
+        column.data_type()
+    )))
+}
+
+/// Run `call`, retrying up to 5 times, 1s apart, when the platform answers
+/// 429 (rate limited). A 429 is rejected before any work is done, so retrying
+/// is safe even for appends. Other errors are returned as is: the request may
+/// have been applied, and repeating an append could add rows twice.
+#[cfg(feature = "hosted")]
+pub fn retry_rate_limited<T>(
+    mut call: impl FnMut() -> Result<T, infino::InfinoError>,
+) -> Result<T, infino::InfinoError> {
+    const ATTEMPTS: usize = 5;
+    let mut attempt = 1;
+    loop {
+        match call() {
+            Err(e) if attempt < ATTEMPTS && e.to_string().contains("server returned 429") => {
+                eprintln!("rate limited (attempt {attempt} of {ATTEMPTS}); retrying in 1s");
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// The number of documents the hosted table should hold: from
+/// `INFINO_BENCH_EXPECTED_DOCS`, else the scale (`1B` = 1,000,000,000), else
+/// the line count of `CORPUS`. `None` if none of these is available.
+#[cfg(feature = "hosted")]
+pub fn expected_docs() -> Option<u64> {
+    if let Some(n) = std::env::var("INFINO_BENCH_EXPECTED_DOCS")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+    {
+        return Some(n);
+    }
+    if let Ok(scale) = std::env::var("INFINO_BENCH_SCALE") {
+        return match scale.as_str() {
+            "1M" => Some(1_000_000),
+            "100M" => Some(100_000_000),
+            "1B" => Some(1_000_000_000),
+            "10B" => Some(10_000_000_000),
+            "100B" => Some(100_000_000_000),
+            "1T" => Some(1_000_000_000_000),
+            _ => None,
+        };
+    }
+    let corpus = std::env::var("CORPUS").ok()?;
+    let file = std::fs::File::open(corpus).ok()?;
+    use std::io::BufRead;
+    let lines = std::io::BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter(|l| !l.trim().is_empty())
+        .count();
+    Some(lines as u64)
+}
 
 /// User schema (the `_id` column is auto-injected by the supertable).
 pub fn schema() -> Arc<Schema> {

@@ -147,6 +147,36 @@ crate comes from):
 binary and index in the last engine slot, so a fork page can show how much of a
 branch-vs-main delta is measurement position rather than code.
 
+`infino-platform` benchmarks infino on the hosted infino platform. Each query is
+an HTTPS request, so latency includes the network and the platform's gateway;
+it is not comparable to the in-process columns as a measure of the engine
+alone. It builds the `infino-branch` code as a separate crate against the
+published infino 0.11.2 crate with its `remote` feature, so the client matches
+the platform's release and `infino-branch` still builds on older infino refs.
+
+Set `INFINO_HOST` (`https://<gateway>/v1/<database>`) and `INFINO_API_KEY`, in
+the environment or in an uncommitted `.env` of plain `KEY=value` lines. The
+table is `INFINO_BENCH_TABLE`, defaulting to `<corpus>_<scale>` on a scale run
+(`webcrawl_1b`) and `sbg` otherwise.
+
+- `make index` loads the corpus and waits until every row is visible. An
+  existing table is reused if its row count matches the corpus; otherwise the
+  load fails, and the table must be dropped by hand.
+- Before benching, the engine checks the table's row count against the corpus
+  (or the scale) and fails on a mismatch.
+- The platform allows 20 requests a second per account. `client.py` paces this
+  engine at `HOSTED_REQUESTS_PER_SEC` (default 18), outside the timed window.
+  A rate-limited request is retried after 1s; any other error stops the engine.
+- If an engine exits, or this engine doesn't answer within
+  `QUERY_TIMEOUT_SECS` (default 600), it is dropped from the results and listed
+  under `run.failed_engines`, and the run exits non-zero.
+- Accounts have a row limit (10M by default), so 100M and 1B tables need a
+  higher limit.
+
+```sh
+make index bench-full ENGINES=infino-platform CORPUS=$PWD/corpus.json
+```
+
 infino is benchmarked on its **optimized paths only**. Commands without a
 first-class implementation return `UNSUPPORTED` rather than falling back to
 a slower workaround — so every reported number reflects infino's actual engine.

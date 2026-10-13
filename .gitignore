@@ -37,3 +37,6 @@ cs_pgo/
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# local credentials (INFINO_HOST / INFINO_API_KEY)
+.env

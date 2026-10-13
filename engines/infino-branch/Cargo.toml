@@ -15,6 +15,12 @@ path = "src/bin/build_index.rs"
 name = "do_query"
 path = "src/bin/do_query.rs"
 
+# Hosted-platform code builds only with `hosted`, which engines/infino-platform
+# enables. It deliberately doesn't name infino's `remote` feature; older infino
+# refs lack it, and cargo would fail on them.
+[features]
+hosted = []
+
 [dependencies]
 # Path dependency on the infino checkout under test: the bench box clones the
 # dispatched repo/branch to ../../../infino, so this engine is always the

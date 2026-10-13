@@ -78,6 +78,9 @@ bench-full:
 #
 # INDEX_URI is the store of record. CACHE_DIR is a local disk cache in front of
 # it and holds no authority: deleting it costs fetches, never data.
+#
+# Add infino-platform to SCALE_ENGINES for a hosted column. It uses INFINO_HOST
+# and INFINO_API_KEY, not INDEX_URI (see engines/infino-platform/Makefile).
 SCALE_ENGINES ?= infino-branch
 CACHE_BUDGET_GB ?= 4096
 # A scale run uses the host's cores for one query. The nightly does not set
