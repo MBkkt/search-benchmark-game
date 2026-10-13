@@ -135,43 +135,109 @@ function headlineSummary(data) {
   return { engines, modes, searchModes, countModes, avg, ratio, summarySearch, summaryCount, luceneKey };
 }
 
-// Column order: infino first, Lucene second, everything else after in data order.
+// Column order: every infino column together (the release, then main, then any
+// fork branch spliced in as name@branch), Lucene next, everything else after in
+// data order.
 function orderEngines(engines) {
-  const lucene = engines.find(e => e.toLowerCase().indexOf("lucene") >= 0);
-  const infino = engines.find(e => e.toLowerCase().indexOf("infino") >= 0 && e.indexOf("@") < 0)
-    || engines.find(e => e.toLowerCase().indexOf("infino") >= 0);
-  const head = [];
-  if (infino) head.push(infino);
-  if (lucene && lucene !== infino) head.push(lucene);
-  return head.concat(engines.filter(e => e !== infino && e !== lucene));
+  const isInfino = e => e.toLowerCase().indexOf("infino") >= 0;
+  const infino = engines.filter(e => isInfino(e) && e.indexOf("@") < 0)
+    .concat(engines.filter(e => isInfino(e) && e.indexOf("@") >= 0));
+  const lucene = engines.find(e => !isInfino(e) && e.toLowerCase().indexOf("lucene") >= 0);
+  const head = lucene ? infino.concat([lucene]) : infino;
+  return head.concat(engines.filter(e => head.indexOf(e) < 0));
 }
 
-function ratioCell(r, isBase, extraCls, key) {
-  let cls = "hl-cell" + (extraCls ? " " + extraCls : "");
-  if (isBase) cls += " hl-base";
-  else if (r !== undefined) cls += r > 1.005 ? " hl-slower" : (r < 0.995 ? " hl-faster" : "");
-  return <td className={cls} key={key}>{r === undefined ? "—" : r.toFixed(2)}</td>;
+// A column label a reader can scan: "lucene-10.5.0-bp" becomes "Lucene 10.5.0"
+// over "+ doc reordering". Unknown names fall back to splitting off the version.
+function engineLabel(name) {
+  const m = /^([a-z]+)-?(.*)$/i.exec(name) || [name, name, ""];
+  const pretty = { lucene: "Lucene", iresearch: "IResearch", infino: "infino", tantivy: "tantivy", turbopuffer: "turbopuffer" };
+  const base = pretty[m[1].toLowerCase()] || m[1];
+  let rest = m[2];
+  let sub = "";
+  if (/-bp$/.test(rest)) { rest = rest.replace(/-bp$/, ""); sub = "+ doc reordering"; }
+  if (rest === "main") { rest = ""; sub = "main, unreleased"; }
+  else if (base === "infino" && /^\d/.test(rest)) sub = "release";
+  if (name.toLowerCase() === "turbopuffer") sub = "published numbers";
+  return { title: (base + " " + rest).trim(), sub };
 }
 
-function meanNumClass(r, isBase) {
-  if (isBase || r === undefined) return "hl-mean-num";
-  return "hl-mean-num " + (r > 1.005 ? "hl-mean-slower" : (r < 0.995 ? "hl-mean-faster" : ""));
+function EngineHeader({ name }) {
+  const l = engineLabel(name);
+  return <span className="eng-h" title={name}>{l.title}{l.sub ? <small>{l.sub}</small> : null}</span>;
 }
 
-// One Mean cell, two labeled values: the search top-k mean over the count mean.
-function meanCell(searchR, countR, isBase, key) {
-  const num = (r) => <span className={meanNumClass(r, isBase)}>{r === undefined ? "—" : r.toFixed(2)}</span>;
+// The engine with the lowest value in a row, or undefined when fewer than two
+// engines have a value (a lone engine leads nothing).
+function leaderOf(values) {
+  const present = Object.keys(values).filter(e => values[e] !== undefined);
+  if (present.length < 2) return undefined;
+  return present.reduce((a, b) => (values[b] < values[a] ? b : a));
+}
+
+// Each engine's place in a row (1 = lowest value), plus the row's highest value
+// for scaling bars. Equal values share a place.
+function rowRanks(values) {
+  const vs = Object.values(values).filter(v => v !== undefined).sort((a, b) => a - b);
+  const rank = {};
+  for (const e of Object.keys(values)) {
+    if (values[e] !== undefined) rank[e] = vs.indexOf(values[e]) + 1;
+  }
+  return { rank, max: vs[vs.length - 1] };
+}
+
+function ordinal(n) {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th");
+  return n + s;
+}
+
+// Bar scale, relative to the baseline: 1.00 is a full bar at BAR_BASE% of the
+// cell, and a value slower than the baseline continues past it in red, up to
+// 1 + BAR_OVER_MAX, beyond which it stops at the cell edge (the value above it
+// carries the exact figure). The 80% is repeated in style.scss's track.
+const BAR_BASE = 80;
+const BAR_OVER_MAX = 0.25;
+
+function ratioBar(v) {
+  const fill = Math.min(v, 1) * BAR_BASE;
+  const over = Math.min(Math.max(v - 1, 0), BAR_OVER_MAX) / BAR_OVER_MAX * (100 - BAR_BASE);
   return (
-    <td className={"hl-cell hl-mean-cell" + (isBase ? " hl-base" : "")} key={key}>
-      <div className="hl-mean-item"><span className="hl-mean-lbl">search</span>{num(searchR)}</div>
-      <div className="hl-mean-item"><span className="hl-mean-lbl">count</span>{num(countR)}</div>
+    <div className="hl-bar">
+      <span className="hl-fill" style={{ width: fill + "%" }} />
+      {over > 0 ? <span className="hl-over" style={{ width: over + "%" }} /> : null}
+    </div>
+  );
+}
+
+// One ranked cell: the value, its bar (relative to the baseline; with no
+// baseline, to the row's slowest engine), and the engine's place in the row.
+// 1st is filled, 2nd and 3rd get a lighter shade of the same colour, the rest
+// stay grey.
+function rankedCell(v, text, place, max, absolute, key) {
+  if (v === undefined) return <td className="hl-cell" key={key}>—</td>;
+  const tier = place === 1 ? " hl-leader" : (place <= 3 ? " hl-p" + place : "");
+  return (
+    <td className={"hl-cell" + tier} key={key}>
+      <div className="hl-val">{text}</div>
+      {absolute
+        ? <div className="hl-bar"><span className="hl-fill" style={{ width: (v / max) * BAR_BASE + "%" }} /></div>
+        : ratioBar(v)}
+      <div className="hl-gap">
+        <b>{ordinal(place)}</b>
+      </div>
     </td>
   );
 }
 
-// Microseconds, as the absolute-time cells render them.
-function usCell(v, key) {
-  return <td key={key} className="hl-num">{v === undefined ? "—" : numberWithCommas(Math.round(v)) + " \u00b5s"}</td>;
+// One Mean cell, two labeled values: the search top-k mean over the count mean.
+function meanCell(searchR, countR, searchLead, countLead, key) {
+  const num = (r, lead) => <span className={"hl-mean-num" + (lead ? " hl-mean-lead" : "")}>{r === undefined ? "—" : r.toFixed(2)}</span>;
+  return (
+    <td className="hl-cell hl-mean-cell" key={key}>
+      <div className="hl-mean-item"><span className="hl-mean-lbl">search</span>{num(searchR, searchLead)}</div>
+      <div className="hl-mean-item"><span className="hl-mean-lbl">count</span>{num(countR, countLead)}</div>
+    </td>
+  );
 }
 
 function Headline({ data }) {
@@ -182,6 +248,8 @@ function Headline({ data }) {
   // With no baseline there is nothing to be relative to, so the table carries
   // the average latency per shape instead of a ratio.
   const absolute = luceneKey === undefined;
+  const searchLead = leaderOf(summarySearch);
+  const countLead = leaderOf(summaryCount);
   return (
     <div className="headline">
       <div className="headline-title">
@@ -194,23 +262,30 @@ function Headline({ data }) {
           <tr>
             <th>Query shape</th>
             {engines.map(engine => (
-              <th key={"h-" + engine}>{engine}</th>
+              <th key={"h-" + engine}><EngineHeader name={engine} /></th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {modes.map(mode => (
-            <tr key={"r-" + mode}>
-              <td className="hl-engine">{mode}</td>
-              {engines.map(engine => absolute
-                ? usCell(avg[engine][mode], engine + "-" + mode)
-                : ratioCell(ratio[engine][mode], engine === luceneKey, "", engine + "-" + mode))}
-            </tr>
-          ))}
+          {modes.map(mode => {
+            const row = {};
+            for (const e of engines) row[e] = absolute ? avg[e][mode] : ratio[e][mode];
+            const ranks = rowRanks(row);
+            return (
+              <tr key={"r-" + mode}>
+                <td className="hl-engine">{mode}</td>
+                {engines.map(engine => {
+                  const v = row[engine];
+                  const text = v === undefined ? "" : (absolute ? numberWithCommas(Math.round(v)) + " µs" : v.toFixed(2));
+                  return rankedCell(v, text, ranks.rank[engine], ranks.max, absolute, engine + "-" + mode);
+                })}
+              </tr>
+            );
+          })}
           {absolute ? null : (
             <tr className="hl-summary-row">
               <td className="hl-engine">Mean<div className="hl-mean-sublabel">search / count</div></td>
-              {engines.map(engine => meanCell(summarySearch[engine], summaryCount[engine], engine === luceneKey, "s-" + engine))}
+              {engines.map(engine => meanCell(summarySearch[engine], summaryCount[engine], engine === searchLead, engine === countLead, "s-" + engine))}
             </tr>
           )}
         </tbody>
@@ -220,10 +295,60 @@ function Headline({ data }) {
 }
 
 // On-disk index size per engine, sourced from data.index_sizes (a map
-// engine -> bytes recorded at build time). Engines are columns in the same
-// order as the headline; two rows — absolute size and size relative to
-// Lucene (Lucene = 1.00, >1 = larger). Renders nothing for runs whose
-// results.json predates index-size recording.
+// engine -> bytes recorded at build time), with the smallest highlighted.
+// Renders nothing for runs whose results.json predates index-size recording.
+function IndexSize({ data }) {
+  const sizes = data.index_sizes;
+  if (!sizes || Object.keys(sizes).length === 0) return null;
+  const present = Object.keys(sizes).filter(e => sizes[e] !== undefined && sizes[e] !== null);
+  if (present.length === 0) return null;
+  const engines = orderEngines(present);
+  const luceneKey = engines.find(e => e.toLowerCase().indexOf("lucene") >= 0);
+  const base = luceneKey ? sizes[luceneKey] : undefined;
+  // Bars are relative to Lucene, as in the latency table; without a Lucene
+  // column they fall back to the largest index.
+  const row = Object.fromEntries(engines.map(e => [e, base ? sizes[e] / base : sizes[e]]));
+  const ranks = rowRanks(row);
+  return (
+    <div className="headline">
+      <div className="headline-title">
+        Index size on disk{luceneKey ? <span className="headline-hint"> (and relative to Lucene = 1.00; &gt;1 = larger)</span> : null}
+      </div>
+      <table className="headline-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            {engines.map(engine => <th key={"is-h-" + engine}><EngineHeader name={engine} /></th>)}
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="hl-engine">Size</td>
+            {engines.map(engine => rankedCell(row[engine], formatBytes(sizes[engine]), ranks.rank[engine], ranks.max, !base, "is-s-" + engine))}
+          </tr>
+          {base ? (
+            <tr>
+              <td className="hl-engine">vs Lucene</td>
+              {engines.map(engine => (
+                <td className="hl-cell" key={"is-r-" + engine}>{(sizes[engine] / base).toFixed(2)}</td>
+              ))}
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+      <div className="headline-note">
+        Note: infino’s on-disk index is columnar and stores the original{" "}
+        <code>text</code> column for retrieval <em>in addition to</em>{" "}
+        the full-text index.
+        {engines.length > 1
+          ? " The other engines here index the text without storing it, so their size is index-only."
+          : null}
+      </div>
+    </div>
+  );
+}
+
+
 // What produced this page: corpus, document count, query set, and when it ran.
 // Renders nothing for runs whose results.json predates this block, which is
 // every file committed before it existed.
@@ -296,64 +421,8 @@ function RunProvenance({ data }) {
   );
 }
 
-function IndexSize({ data }) {
-  const sizes = data.index_sizes;
-  if (!sizes || Object.keys(sizes).length === 0) return null;
-  const present = Object.keys(sizes).filter(e => sizes[e] !== undefined && sizes[e] !== null);
-  if (present.length === 0) return null;
-  const engines = orderEngines(present);
-  const luceneKey = engines.find(e => e.toLowerCase().indexOf("lucene") >= 0);
-  const base = luceneKey ? sizes[luceneKey] : undefined;
-  const ratioClass = (r) => r > 1.005 ? "hl-slower" : (r < 0.995 ? "hl-faster" : "");
-  return (
-    <div className="headline">
-      <div className="headline-title">
-        Index size on disk{luceneKey ? <span className="headline-hint"> (and relative to Lucene = 1.00; &gt;1 = larger)</span> : null}
-      </div>
-      <table className="headline-table">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            {engines.map(engine => <th key={"is-h-" + engine}>{engine}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="hl-engine">Size</td>
-            {engines.map(engine => (
-              <td className={"hl-cell" + (engine === luceneKey ? " hl-base" : "")} key={"is-s-" + engine}>
-                {formatBytes(sizes[engine])}
-              </td>
-            ))}
-          </tr>
-          {base ? (
-            <tr>
-              <td className="hl-engine">vs Lucene</td>
-              {engines.map(engine => {
-                const r = sizes[engine] / base;
-                const isBase = engine === luceneKey;
-                let cls = "hl-cell";
-                if (isBase) cls += " hl-base";
-                else cls += " " + ratioClass(r);
-                return <td className={cls} key={"is-r-" + engine}>{r.toFixed(2)}</td>;
-              })}
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
-      <div className="headline-note">
-        Note: infino’s on-disk index is columnar and stores the original{" "}
-        <code>text</code> column for retrieval <em>in addition to</em>{" "}
-        the full-text index.
-        {engines.length > 1
-          ? " The other engines here index the text without storing it, so their size is index-only."
-          : null}
-      </div>
-    </div>
-  );
-}
-
 function stats_row(engines, name, className, stat) {
+  const lead = leaderOf(Object.fromEntries(Object.entries(engines).map(([e, s]) => [e, s && s[stat]])));
   return <tr className={className + "-row"}>
             <td>{name}</td>
             {
@@ -361,7 +430,7 @@ function stats_row(engines, name, className, stat) {
                 var engine = kv[0];
                 var engine_stats = kv[1];
                 if (engine_stats !== undefined) {
-                  return <td key={"result-" + engine}>
+                  return <td key={"result-" + engine} className={engine === lead ? "stat-leader" : ""}>
                     {numberWithCommas(engine_stats[stat])} μs
                 </td>;
                 } else {
@@ -421,7 +490,7 @@ class Benchmark extends React.Component {
     var queries = {}
     var details = this.props.data.details;
     var mode_data = this.props.data.results[this.state.mode];
-    for (var engine in mode_data) {
+    for (var engine of orderEngines(Object.keys(mode_data))) {
       var engine_queries = mode_data[engine];
       engine_queries = Array.from(this.filterQueries(engine_queries));
       engine_queries = engine_queries.map(aggregate);
@@ -519,13 +588,12 @@ class Benchmark extends React.Component {
           </select>
         </fieldset>
       </form>
-      <hr />
-      <table>
+      <table className="query-table">
         <thead>
           <tr>
             <th>Query</th>
             {
-              Object.keys(data_view.engines).map((engine) => <th key={"col-" + engine}><details><summary>{engine}</summary>{ details_list(data_view.details[engine]) }</details></th>)
+              Object.keys(data_view.engines).map((engine) => <th key={"col-" + engine}><details><summary><EngineHeader name={engine} /></summary>{ details_list(data_view.details[engine]) }</details></th>)
             }
           </tr>
         </thead>
