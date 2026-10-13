@@ -1,6 +1,6 @@
 [
   "Written in Rust.",
-  "Built from the published infino crate — the 0.8.9 release.",
+  "Built from the published infino crate — the 0.11.2 release.",
   "Benchmarks infino's supertable query path — manifest + single superfile segment (built in multiple incremental commits, then compacted to one), each segment a valid Apache Parquet file with an embedded BM25 index.",
   "All segments preloaded into an in-memory reader tier; queries are fully synchronous (no per-query async/tokio overhead).",
   "Doc-at-a-time; term dictionary is an FST; postings are PFOR-delta encoded with a skip table.",

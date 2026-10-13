@@ -18,7 +18,7 @@ use std::io::{self, BufRead};
 use std::sync::Arc;
 
 use infino::storage::{LocalFsStorageProvider, StorageProvider};
-use infino::superfile::fts::reader::{Bm25SearchOptions, Bm25Stats, BoolMode};
+use infino::superfile::fts::reader::{Bm25SearchOptions, BoolMode};
 use infino::supertable::Supertable;
 use infino::supertable::reader_cache::{InMemoryReaderCache, SuperfileReaderCache};
 
@@ -109,16 +109,12 @@ fn main() {
 /// Search options for every ranked command, in one place so the two
 /// call sites cannot drift apart on the statistics scope.
 ///
-/// `PerSuperfile` is deliberate and unchanged: the harness measures the
-/// per-segment fan-out without the table-wide document-frequency gather
-/// that global statistics add, so the number reflects the query kernels
-/// rather than a preliminary pass. The BM25 parameters are left at the
-/// engine's declared defaults — this harness measures the standard
-/// scoring configuration.
+/// Statistics scope and BM25 parameters are left at the engine's
+/// defaults: table-wide idf, the only scope infino keeps now that per-superfile
+/// idf is removed, and the column's declared k1/b. This harness measures
+/// the standard scoring configuration.
 fn search_opts(mode: BoolMode) -> Bm25SearchOptions {
-    Bm25SearchOptions::new()
-        .with_mode(mode)
-        .with_stats(Bm25Stats::PerSuperfile)
+    Bm25SearchOptions::new().with_mode(mode)
 }
 
 fn top_k(command: &str) -> usize {

@@ -7,7 +7,7 @@ query path (manifest + per-segment fan-out) — the production query surface —
 built as multiple segments and read fully in memory.
 
 It builds against the **published crate**, pinned exactly to
-`infino = "=0.8.9"` — the version the engine is named for, not a
+`infino = "=0.11.2"` — the version the engine is named for, not a
 working-tree checkout.
 
 ## Scope: benchmarked commands
@@ -28,8 +28,7 @@ working-tree checkout.
 infino's `standard` analyzer: UAX #29 word segmentation plus Unicode
 lowercasing, no stemming — the same split as Lucene's `StandardTokenizer` +
 `LowerCaseFilter`. On the pre-transformed corpus (lowercase `[a-z]` and spaces
-only) it reduces to whitespace splitting, identical to what infino's
-`ascii_lower` analyzer produces. BM25 with Lucene defaults (`k1 = 1.2`, `b = 0.75`) and Lucene-style
+only) it reduces to whitespace splitting. BM25 with Lucene defaults (`k1 = 1.2`, `b = 0.75`) and Lucene-style
 IDF.
 
 ## Build & read

@@ -16,13 +16,13 @@ name = "do_query"
 path = "src/bin/do_query.rs"
 
 [dependencies]
-# The published infino crate, pinned to the exact 0.8.9 release so the
+# The published infino crate, pinned to the exact 0.11.2 release so the
 # engine name and the version actually benchmarked can never drift apart
 # (Cargo.lock records the same version). This engine benchmarks the
 # supertable query path (manifest + per-segment fan-out) — the production
 # surface — built as a SINGLE segment so it is a like-for-like comparison
 # with the force-merged single-segment indexes tantivy and lucene build.
-infino = { version = "=0.8.9", features = ["test-helpers"] }
+infino = { version = "=0.11.2", features = ["test-helpers"] }
 arrow-array = "58"
 arrow-schema = "58"
 rayon = "1"
