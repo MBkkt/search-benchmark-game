@@ -7,13 +7,13 @@ CORPUS_NAME ?= wikipedia
 
 COMMANDS ?= TOP_10 TOP_100 TOP_1000 TOP_100_COUNT COUNT
 
-# infino-0.8.9 is the published crate (what a user gets from crates.io);
+# infino-0.11.2 is the published crate (what a user gets from crates.io);
 # infino-main is the tip of infino-ai/infino main. Branch runs swap in
 # infino-branch (see scripts/user-data-template.sh).
 # lucene-10.5.0 stays ahead of lucene-10.5.0-bp: the web page takes the first
 # lucene-named column as the 1.00 baseline, so the plain build is the baseline
 # and the doc-reordered build reads as a ratio against it.
-ENGINES ?= infino-0.8.9 infino-main tantivy-0.26 lucene-10.5.0 lucene-10.5.0-bp iresearch-26.03.1
+ENGINES ?= infino-0.11.2 infino-main tantivy-0.26 lucene-10.5.0 lucene-10.5.0-bp iresearch-26.03.1
 QUERIES ?= queries.txt
 PORT ?= 8080
 WARMUP_TIME ?= 60

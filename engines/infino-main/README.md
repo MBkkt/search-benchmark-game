@@ -9,7 +9,7 @@ built as multiple segments and read fully in memory.
 It builds from the **main line**, path-depped at `../../../infino-main` — the
 bench box always clones `infino-ai/infino` at `main` there, whatever branch is
 under test. It is the baseline the `infino-branch` column is read against, and
-the unreleased counterpart to the published `infino-0.8.9` column.
+the unreleased counterpart to the published `infino-0.11.2` column.
 
 ## Scope: benchmarked commands
 

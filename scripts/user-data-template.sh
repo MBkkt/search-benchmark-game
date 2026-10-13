@@ -103,7 +103,7 @@ GH_TOKEN=$(cat /run/sbg/gh-token)
 #   $HOME/infino      -> engines/infino-branch, the dispatched repo/ref. Only
 #                        cloned for a branch/fork run; a main run has nothing to
 #                        put in that column that infino-main isn't already.
-# (engines/infino-0.8.9 needs neither — it builds the published crate.)
+# (engines/infino-0.11.2 needs neither — it builds the published crate.)
 git clone "https://github.com/infino-ai/infino.git" "$HOME/infino-main"
 git -C "$HOME/infino-main" checkout main
 
@@ -149,7 +149,7 @@ fi
 #   - fast branch run (same_box=false): infino-branch alone (~30 min saved),
 #     compared cross-run against the committed main baseline;
 #   - official main nightly: the default full set from the Makefile
-#     (infino-0.8.9 + infino-main + the competitor engines).
+#     (infino-0.11.2 + infino-main + the competitor engines).
 MAKE_ARGS=()
 if [ "$IS_BRANCH_RUN" = "true" ] && [ "$SAME_BOX" = "true" ]; then
   # Branch benched both FIRST and LAST (infino-branch ... infino-branch-last):

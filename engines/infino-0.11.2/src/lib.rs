@@ -76,17 +76,12 @@ pub fn options(storage: Arc<dyn StorageProvider>) -> SupertableOptions {
 
     SupertableOptions::new(
         schema(),
-        // Token positions on: phrase queries are first-class. Index-only
-        // (stored(false)), matching how the other engines build the SBG
-        // index (Lucene does not store the field either): queries here
-        // only rank and count, never read the text back, so skipping the
-        // stored copy keeps the on-disk size comparable. The `standard`
-        // analyzer (UAX #29 word segmentation + Unicode lowercase) is the
-        // Lucene-parity tokenizer, so the split matches Lucene's
-        // `StandardTokenizer` on any corpus, not only the pre-transformed
-        // one benched here.
+        // Token positions on (phrase queries are first-class); the text is
+        // index-only (stored(false)), matching how the other engines build
+        // the SBG index — Lucene does not store the body either. The
+        // default `standard` analyzer (UAX #29 + Unicode lowercase) is the
+        // Lucene-parity tokenizer.
         vec![FtsConfig::new(COLUMN)
-            .analyzer("standard")
             .positions(true)
             .stored(false)],
         vec![],
