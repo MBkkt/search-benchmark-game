@@ -19,8 +19,7 @@ use std::sync::Arc;
 
 use infino::storage::StorageProvider;
 use infino::superfile::fts::reader::{Bm25SearchOptions, BoolMode};
-use infino::InfinoError;
-use infino::supertable::{Supertable, SupertableReader};
+use infino::supertable::Supertable;
 use infino::supertable::reader_cache::{InMemoryReaderCache, SuperfileReaderCache};
 
 use infino_bench::COLUMN;
@@ -31,74 +30,7 @@ fn main() {
     // scale run is served: the index is far too large to build per run, and on
     // object storage rather than beside the engine.
     let target = env::var("INFINO_BENCH_INDEX_URI").unwrap_or_else(|_| args[1].clone());
-
-    // A hosted target sends each query to the platform over HTTPS.
-    let index = if infino_bench::is_hosted(&target) {
-        open_hosted(&target)
-    } else {
-        Index::Local(open_local(&target))
-    };
-
-    let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        let line = line.expect("read line");
-        let mut parts = line.splitn(2, '\t');
-        let command = parts.next().unwrap_or("");
-        let query = parts.next().unwrap_or("");
-
-        // Lucene's default operator: bare terms are OR'd. All clause
-        // structure — +/- sigils and quoted phrases — rides in the
-        // query string itself; infino parses it natively.
-        let mode = BoolMode::Or;
-
-        // A hosted answer carries the platform's own query time (us), summed
-        // over the requests that answered it; local answers carry none.
-        let result: Result<(usize, u64), InfinoError> = match command {
-            _ if query.split_whitespace().all(|t| t.starts_with('-') || t.trim().is_empty()) => {
-                // negation-only: no positive terms to rank
-                Ok((0, 0))
-            }
-            _ if query.trim().is_empty() => Ok((0, 0)),
-            "TOP_10" | "TOP_100" | "TOP_1000" => index
-                .bm25_search(query, top_k(command), search_opts(mode))
-                .map(|us| (1, us)),
-            // Plain COUNT: native posting-list traversal, no scoring.
-            "COUNT" => index.count(query, mode).map(|(n, us)| (n as usize, us)),
-            // TOP_k_COUNT: fetch the top-k results AND count all matches —
-            // two passes, matching what engines like Lucene do for this command.
-            "TOP_1_COUNT" | "TOP_5_COUNT" | "TOP_10_COUNT"
-            | "TOP_100_COUNT" | "TOP_1000_COUNT" => index
-                .bm25_search(query, top_k_count(command), search_opts(mode))
-                .and_then(|search_us| {
-                    index.count(query, mode).map(|(n, count_us)| (n as usize, search_us + count_us))
-                }),
-            _ => {
-                println!("UNSUPPORTED");
-                continue;
-            }
-        };
-        match result {
-            // The harness times a hosted query by the platform's reported
-            // query time instead of the round trip (see src/client.py).
-            Ok((count, us)) if index.is_hosted() => println!("{count}\t{us}"),
-            Ok((count, _)) => println!("{count}"),
-            // Exit rather than print 0, so a failed request is never
-            // recorded as a result.
-            Err(e) if index.is_hosted() => {
-                eprintln!("hosted error for {command:?} {query:?}: {e}");
-                std::process::exit(1);
-            }
-            Err(e) => {
-                eprintln!("search error for {command:?} {query:?}: {e}");
-                println!("0");
-            }
-        }
-    }
-}
-
-/// Open a local path or `gs://bucket/prefix` index.
-fn open_local(target: &str) -> SupertableReader {
-    let storage: Arc<dyn StorageProvider> = infino_bench::storage_for(target);
+    let storage: Arc<dyn StorageProvider> = infino_bench::storage_for(&target);
 
     // Default: an in-memory reader tier, preloaded after open, so the query
     // path resolves readers SYNCHRONOUSLY from tier-1 (`store.reader`) and
@@ -139,79 +71,57 @@ fn open_local(target: &str) -> SupertableReader {
             }
         });
     }
-    reader
-}
 
-/// The index being queried: opened in this process, or a hosted table.
-enum Index {
-    Local(SupertableReader),
-    #[cfg(feature = "hosted")]
-    Hosted(infino_bench::HostedQueries),
-}
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        let line = line.expect("read line");
+        let mut parts = line.splitn(2, '\t');
+        let command = parts.next().unwrap_or("");
+        let query = parts.next().unwrap_or("");
 
-/// Open the hosted table. Exits if its row count differs from the expected
-/// document count, so a partial or wrong table is never benched.
-#[cfg(feature = "hosted")]
-fn open_hosted(target: &str) -> Index {
-    let table = infino_bench::hosted_table();
-    let conn = infino_bench::connect_hosted(target);
-    let held = infino_bench::retry_rate_limited(|| infino_bench::hosted_doc_count(&conn, &table))
-        .unwrap_or_else(|e| {
-            eprintln!("hosted error counting table {table} at {target}: {e}");
-            std::process::exit(1);
-        });
-    match infino_bench::expected_docs() {
-        Some(expected) if expected != held => {
-            eprintln!(
-                "ERROR: hosted table {table} at {target} holds {held} docs, the run expects {expected}"
-            );
-            std::process::exit(1);
-        }
-        Some(_) => eprintln!("hosted: querying table {table} ({held} docs) at {target}"),
-        None => eprintln!(
-            "hosted: querying table {table} ({held} docs) at {target}; \
-             row count not checked"
-        ),
-    }
-    // Open through infino's client so a missing table fails here, then
-    // query directly: infino's client does not expose the query-time header.
-    infino_bench::retry_rate_limited(|| conn.open_table(&table)).expect("open hosted table");
-    eprintln!("hosted: timing each query by the {} response header", infino_bench::QUERY_TIME_HEADER);
-    Index::Hosted(infino_bench::HostedQueries::new(target, &table))
-}
+        // Lucene's default operator: bare terms are OR'd. All clause
+        // structure — +/- sigils and quoted phrases — rides in the
+        // query string itself; infino parses it natively.
+        let mode = BoolMode::Or;
 
-#[cfg(not(feature = "hosted"))]
-fn open_hosted(target: &str) -> Index {
-    infino_bench::no_hosted_support(target)
-}
-
-impl Index {
-    /// Returns the platform's query time in us for a hosted index, else 0.
-    /// The hosted request always uses BoolMode::Or, the only mode the bench
-    /// sends.
-    fn bm25_search(&self, query: &str, k: usize, opts: Bm25SearchOptions) -> Result<u64, InfinoError> {
-        match self {
-            Index::Local(r) => {
-                r.bm25_search(COLUMN, query, k, opts, None)?;
-                Ok(0)
+        let result = match command {
+            _ if query.split_whitespace().all(|t| t.starts_with('-') || t.trim().is_empty()) => {
+                // negation-only: no positive terms to rank
+                Ok(0usize)
             }
-            #[cfg(feature = "hosted")]
-            Index::Hosted(h) => h.bm25_search(query, k),
+            _ if query.trim().is_empty() => Ok(0usize),
+            "TOP_10" | "TOP_100" | "TOP_1000" => reader
+                .bm25_search(COLUMN, query, top_k(command), search_opts(mode), None)
+                .map(|_| 1),
+            // Plain COUNT: native posting-list traversal, no scoring.
+            "COUNT" => reader
+                .count(COLUMN, query, mode)
+                .map(|n| n as usize),
+            // TOP_k_COUNT: fetch the top-k results AND count all matches —
+            // two passes, matching what engines like Lucene do for this command.
+            "TOP_1_COUNT" | "TOP_5_COUNT" | "TOP_10_COUNT"
+            | "TOP_100_COUNT" | "TOP_1000_COUNT" => reader
+                .bm25_search(
+                    COLUMN,
+                    query,
+                    top_k_count(command),
+                    search_opts(mode),
+                    None,
+                )
+                .and_then(|_| reader.count(COLUMN, query, mode))
+                .map(|n| n as usize),
+            _ => {
+                println!("UNSUPPORTED");
+                continue;
+            }
+        };
+        match result {
+            Ok(count) => println!("{count}"),
+            Err(e) => {
+                eprintln!("search error for {command:?} {query:?}: {e}");
+                println!("0");
+            }
         }
-    }
-
-    /// The match count, and the platform's query time in us for a hosted
-    /// index (else 0).
-    fn count(&self, query: &str, mode: BoolMode) -> Result<(u64, u64), InfinoError> {
-        match self {
-            Index::Local(r) => Ok((r.count(COLUMN, query, mode)? as u64, 0)),
-            #[cfg(feature = "hosted")]
-            Index::Hosted(h) => h.count(query),
-        }
-    }
-
-    fn is_hosted(&self) -> bool {
-        !matches!(self, Index::Local(_))
     }
 }
 

@@ -14,17 +14,6 @@ COMMANDS = os.environ['COMMANDS'].split(' ')
 # Engines that query the hosted platform instead of a local index.
 HOSTED_ENGINES = ("infino-platform",)
 
-# The platform allows 20 requests a second per account, so hosted engines are
-# paced below that. The pause happens before the timer starts.
-HOSTED_REQUESTS_PER_SEC = float(os.environ.get("HOSTED_REQUESTS_PER_SEC", "18"))
-
-def min_query_interval(engine, command):
-    if engine not in HOSTED_ENGINES:
-        return 0.0
-    # TOP_k_COUNT ranks and then counts: two requests per query.
-    requests = 2 if command.startswith("TOP_") and command.endswith("_COUNT") else 1
-    return requests / HOSTED_REQUESTS_PER_SEC
-
 # Seconds to wait for a hosted engine's answer before treating it as hung. The
 # first answer also covers engine startup, so it gets longer.
 QUERY_TIMEOUT_SECS = float(os.environ.get("QUERY_TIMEOUT_SECS", "600"))
@@ -107,15 +96,9 @@ class SearchClient:
             pass
         self.process.wait()
 
-def drive(queries, client, command, interval=0.0):
-    last = None
+def drive(queries, client, command):
     for query in queries:
-        if interval and last is not None:
-            wait = interval - (time.monotonic() - last)
-            if wait > 0:
-                time.sleep(wait)
         start = time.monotonic()
-        last = start
         count = client.query(query.query, command)
         stop = time.monotonic()
         duration = int((stop - start) * 1e6)
@@ -251,7 +234,6 @@ if __name__ == "__main__":
             print("======================")
             print("BENCHMARKING %s %s" % (engine, command))
             search_client = SearchClient(engine)
-            interval = min_query_interval(engine, command)
             try:
                 queries_shuffled = list(queries[:])
                 random.seed(2)
@@ -259,7 +241,7 @@ if __name__ == "__main__":
                 warmup_start = time.monotonic()
                 printProgressBar(0, prefix = 'Warmup:', suffix = 'Complete', length = 50)
                 while True:
-                    for _ in drive(queries_shuffled, search_client, command, interval):
+                    for _ in drive(queries_shuffled, search_client, command):
                         pass
                     progress = min(1, (time.monotonic() - warmup_start) / WARMUP_TIME)
                     printProgressBar(progress, prefix = 'Warmup:', suffix = 'Complete', length = 50)
@@ -267,7 +249,7 @@ if __name__ == "__main__":
                         break
                 printProgressBar(0, prefix = 'Run:   ', suffix = 'Complete', length = 50)
                 for i in range(NUM_ITER):
-                    for (query, count, duration) in drive(queries_shuffled, search_client, command, interval):
+                    for (query, count, duration) in drive(queries_shuffled, search_client, command):
                         if count is None:
                             query_idx[query.query] = {count: -1, duration: []}
                         else:

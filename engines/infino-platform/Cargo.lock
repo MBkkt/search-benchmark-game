@@ -2150,10 +2150,8 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "infino",
- "rayon",
  "serde",
  "serde_json",
- "tokio",
  "ureq",
 ]
 

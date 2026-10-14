@@ -15,12 +15,6 @@ path = "src/bin/build_index.rs"
 name = "do_query"
 path = "src/bin/do_query.rs"
 
-# Hosted-platform code builds only with `hosted`, which engines/infino-platform
-# enables. It deliberately doesn't name infino's `remote` feature; older infino
-# refs lack it, and cargo would fail on them.
-[features]
-hosted = ["dep:ureq"]
-
 [dependencies]
 # Path dependency on the infino checkout under test: the bench box clones the
 # dispatched repo/branch to ../../../infino, so this engine is always the
@@ -35,9 +29,6 @@ rayon = "1"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# The hosted query path sends requests itself to read the platform's
-# query-time header; same client and TLS as infino's `remote` feature.
-ureq = { version = "2", features = ["json", "tls"], optional = true }
 
 [profile.release]
 lto = true

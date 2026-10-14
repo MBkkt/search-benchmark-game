@@ -3,41 +3,32 @@ name = "infino-platform-bench"
 version = "0.1.0"
 edition = "2024"
 
-# The engines/infino-branch code, built against the published infino crate
-# with its `remote` feature. This is a separate crate because older infino
-# refs lack `remote`, and cargo fails on a manifest that names a missing
-# feature, even an unused one. It also builds into its own target/, so the two
-# engines' binaries stay separate.
+# infino on the hosted platform. There is no local index: build_index loads the
+# corpus into a hosted table and do_query sends each query over HTTPS.
 [lib]
-name = "infino_bench"
-path = "../infino-branch/src/lib.rs"
+name = "infino_platform"
+path = "src/lib.rs"
 
 [[bin]]
 name = "build_index"
-path = "../infino-branch/src/bin/build_index.rs"
+path = "src/bin/build_index.rs"
 
 [[bin]]
 name = "do_query"
-path = "../infino-branch/src/bin/do_query.rs"
-
-[features]
-default = ["hosted"]
-hosted = ["dep:ureq"]
+path = "src/bin/do_query.rs"
 
 [dependencies]
-# The published crate, pinned to the release the hosted platform runs, so the
-# client and the server speak the same API (as with engines/infino-0.11.2,
-# Cargo.lock records the same version).
-infino = { version = "=0.11.2", features = ["test-helpers", "remote"] }
+# The published crate with its `remote` client, pinned to the release the
+# hosted platform runs, so the client and the server speak the same API
+# (Cargo.lock records the same version).
+infino = { version = "=0.11.2", features = ["remote"] }
 arrow-array = "58"
 arrow-schema = "58"
-rayon = "1"
-tokio = { version = "1", features = ["rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# The hosted query path sends requests itself to read the platform's
-# query-time header; same client and TLS as infino's `remote` feature.
-ureq = { version = "2", features = ["json", "tls"], optional = true }
+# Queries are sent directly to read the platform's query-time header; same
+# client and TLS as infino's `remote` feature.
+ureq = { version = "2", features = ["json", "tls"] }
 
 [profile.release]
 lto = true

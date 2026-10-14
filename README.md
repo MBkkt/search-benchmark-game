@@ -150,9 +150,9 @@ branch-vs-main delta is measurement position rather than code.
 `infino-platform` benchmarks infino on the hosted infino platform. Each query is
 an HTTPS request, and its latency is the platform's own query time from the
 `x-infino-query-time` response header, so the network and the platform's
-gateway are not counted. It builds the `infino-branch` code as a separate crate
-against the published infino 0.11.2 crate, so the client matches the platform's
-release and `infino-branch` still builds on older infino refs.
+gateway are not counted. It is a separate engine with its own code, built
+against the published infino 0.11.2 crate so the client matches the platform's
+release; it shares nothing with the local infino engines.
 
 Set `INFINO_HOST` (`https://<gateway>/v1/<database>`) and `INFINO_API_KEY`, in
 the environment or in an uncommitted `.env` of plain `KEY=value` lines. The
@@ -164,8 +164,9 @@ table is `INFINO_BENCH_TABLE`, defaulting to `<corpus>_<scale>` on a scale run
   load fails, and the table must be dropped by hand.
 - Before benching, the engine checks the table's row count against the corpus
   (or the scale) and fails on a mismatch.
-- The platform allows 20 requests a second per account. `client.py` paces this
-  engine at `HOSTED_REQUESTS_PER_SEC` (default 18), outside the timed window.
+- The platform allows 20 requests a second per account. The engine paces
+  itself at `INFINO_BENCH_REQUESTS_PER_SEC` (default 18); the pause is never
+  part of a measured query time.
   A rate-limited request is retried after 1s, and a gateway error
   (502/503/504) or dropped connection up to 3 times; any other error stops the
   engine.
