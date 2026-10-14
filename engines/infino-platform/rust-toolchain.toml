@@ -1,0 +1,5 @@
+# rustc 1.99.0 (the bench box's stable since 2026-10-01) crashes in LLVM
+# compiling libbz2-rs-sys with this engine's LTO + target-cpu=native build
+# ("Cannot select: sign_extend"). 1.95.0 builds it, and the box pre-installs it.
+[toolchain]
+channel = "1.95.0"
