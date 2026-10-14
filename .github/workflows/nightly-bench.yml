@@ -51,6 +51,11 @@ on:
         type: boolean
         default: true
         required: false
+      platform_only:
+        description: 'Check the infino-platform column on the CI box: bench it alone on the nightly table and publish nothing (results go to the job summary). Ignores the other inputs. Fails if the platform secrets are missing.'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   id-token: write   # keyless OIDC federation into GCP (or AWS)
@@ -69,6 +74,7 @@ jobs:
       # this is 'false' there, and a main run skips the baseline regardless (see the
       # IS_BRANCH_RUN guard in user-data).
       SAME_BOX: ${{ inputs.same_box && 'true' || 'false' }}
+      PLATFORM_ONLY: ${{ inputs.platform_only && 'true' || 'false' }}
 
     steps:
       # Full history, not the default depth-1. The publish steps below rebase
@@ -167,7 +173,9 @@ jobs:
 
       - name: Download results
         run: |
-          if [ "$INFINO_BRANCH" = "main" ] && [ "$INFINO_REPO" = "infino-ai/infino" ]; then
+          if [ "$PLATFORM_ONLY" = "true" ]; then
+            scripts/bench-cloud.sh fetch results-full-platform-check.json results-full-platform-check.json
+          elif [ "$INFINO_BRANCH" = "main" ] && [ "$INFINO_REPO" = "infino-ai/infino" ]; then
             scripts/bench-cloud.sh fetch results.json      results.json
             scripts/bench-cloud.sh fetch results-full.json results-full.json
           else
@@ -176,11 +184,35 @@ jobs:
             scripts/bench-cloud.sh fetch "results-full-branch-${RUN_SLUG}.json" "results-full-branch-${RUN_SLUG}.json"
           fi
 
+      # Platform check: per-command latency of the infino-platform column, from
+      # the platform's x-infino-query-time header, to the job summary.
+      - name: Summarize platform check
+        if: env.PLATFORM_ONLY == 'true'
+        run: |
+          python3 - results-full-platform-check.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, math, statistics, sys
+          r = json.load(open(sys.argv[1]))
+          print("### infino-platform check (x-infino-query-time)\n")
+          if r.get("run", {}).get("failed_engines"):
+              print("**Failed:** `%s`\n" % r["run"]["failed_engines"])
+          print("| command | queries | p50 (us) | p90 (us) | mean (us) |")
+          print("|---|---:|---:|---:|---:|")
+          for command, engines in r["results"].items():
+              per_query = [statistics.median(q["duration"]) for q in engines.get("infino-platform", []) if q.get("duration")]
+              if not per_query:
+                  print("| %s | 0 | - | - | - |" % command)
+                  continue
+              per_query.sort()
+              print("| %s | %d | %d | %d | %d |" % (command, len(per_query),
+                  statistics.median(per_query), per_query[math.ceil(0.9 * len(per_query)) - 1],
+                  statistics.mean(per_query)))
+          PY
+
       # Branch runs: compare the infino-branch column vs the committed main
       # baseline's infino-main column (see scripts/compare_results.py) and
       # post a markdown table to the job summary. No commit to master.
       - name: Compare branch results vs main
-        if: env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino'
+        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         run: |
           RUN_SLUG="${INFINO_REPO//\//-}-${INFINO_BRANCH//\//-}"
           RUN_LABEL="${INFINO_REPO}@${INFINO_BRANCH}"
@@ -201,7 +233,7 @@ jobs:
       # carries tantivy/lucene + main's infino). It lives at <fork_user>/full;
       # the latest branch run from a fork overwrites that fork's page.
       - name: Build fork full-benchmark page
-        if: env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino'
+        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         id: fork-page
         run: |
           RUN_SLUG="${INFINO_REPO//\//-}-${INFINO_BRANCH//\//-}"
@@ -225,7 +257,7 @@ jobs:
       # Fresh token scoped to the SBG repo for the page push (the app-token from
       # launch has likely expired after the ~2 h bench).
       - name: Generate token to push fork page
-        if: env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino'
+        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         uses: actions/create-github-app-token@v1
         id: fork-push-token
         with:
@@ -235,7 +267,7 @@ jobs:
           repositories: "search-benchmark-game"
 
       - name: Commit and push fork page
-        if: env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino'
+        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         run: |
           FORK_USER="${{ steps.fork-page.outputs.fork_user }}"
           PAGE_DIR="web/build/${FORK_USER}/full"
@@ -289,7 +321,7 @@ jobs:
       # The initial app-token may have expired (bench takes ~2 h, token lasts 1 h).
       # Generate a fresh one just for the push.
       - name: Generate fresh token for push
-        if: env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino'
+        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino')
         uses: actions/create-github-app-token@v1
         id: push-token
         with:
@@ -299,7 +331,7 @@ jobs:
           repositories: "search-benchmark-game"
 
       - name: Commit and push results
-        if: env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino'
+        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino')
         run: |
           git config user.name  "sbg-ci"
           git config user.email "sbg-ci@infino.ai"

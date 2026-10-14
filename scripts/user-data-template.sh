@@ -61,6 +61,10 @@ SBG_BRANCH="__SBG_BRANCH__"
 # the branch column alone, compared cross-run against the committed baseline.
 # It has no effect on a main run — see IS_BRANCH_RUN below.
 SAME_BOX="__SAME_BOX__"
+# When "true", bench the infino-platform column alone and publish nothing: a
+# check that the platform column works on the CI box (see the block after the
+# corpus fetch). Branch, repo and same-box settings are ignored.
+PLATFORM_ONLY="__PLATFORM_ONLY__"
 
 # A branch/fork run is anything other than the official infino-ai/infino main.
 # A main run has no branch column: infino-main already covers that code.
@@ -79,8 +83,9 @@ rustup toolchain install 1.95.0
 
 # JDK 21 only needed for lucene — benched on the official main nightly and on
 # same-box runs; skipped on fast branch/fork runs (the branch column only).
-if { [ "$INFINO_BRANCH" = "main" ] && [ "$INFINO_REPO" = "infino-ai/infino" ]; } \
-  || [ "$SAME_BOX" = "true" ]; then
+if [ "$PLATFORM_ONLY" != "true" ] && \
+  { { [ "$INFINO_BRANCH" = "main" ] && [ "$INFINO_REPO" = "infino-ai/infino" ]; } \
+  || [ "$SAME_BOX" = "true" ]; }; then
   if [ ! -d "$HOME/jdk-21.0.8+9" ]; then
     wget -q \
       "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.8%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.8_9.tar.gz" \
@@ -121,7 +126,7 @@ git -C "$HOME/search-benchmark-game" checkout "$SBG_BRANCH"
 # Its source is a public submodule pinned via an SSH URL; this box authenticates
 # over HTTPS, so rewrite git@ -> https and fetch it plus its nested third_party
 # recursively. Skipped on branch/fork runs to avoid the large checkout.
-if [ "$IS_BRANCH_RUN" = "false" ]; then
+if [ "$IS_BRANCH_RUN" = "false" ] && [ "$PLATFORM_ONLY" != "true" ]; then
   git config --global url."https://github.com/".insteadOf "git@github.com:"
   git -C "$HOME/search-benchmark-game" submodule update --init --recursive \
     engines/iresearch-26.03.1/serenedb
@@ -141,6 +146,23 @@ else
   echo "corpus: this adds roughly half an hour to THIS run only."
   make corpus
   cloud_put corpus.json corpus.json
+fi
+
+# Platform check: the infino-platform column alone, on the nightly's table.
+# Unlike the nightly, missing credentials or a failed table are errors here,
+# since checking them is the point. Results go to their own key, never the
+# canonical ones.
+if [ "$PLATFORM_ONLY" = "true" ]; then
+  host=$(cloud_secret sbg-infino-host) && key=$(cloud_secret sbg-infino-api-key) \
+    && [ -n "$host" ] && [ -n "$key" ] \
+    || { echo "infino-platform: cannot read sbg-infino-host / sbg-infino-api-key from the secret store"; exit 1; }
+  (umask 077; printf 'INFINO_HOST=%s\nINFINO_API_KEY=%s\n' "$host" "$key" > .env)
+  unset host key
+  export INFINO_BENCH_TABLE=sbg_nightly
+  make ENGINES=infino-platform compile index
+  make ENGINES=infino-platform bench-full
+  cloud_put results-full.json results-full-platform-check.json
+  exit 0
 fi
 
 # Engine selection:
