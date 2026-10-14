@@ -22,9 +22,11 @@ DONE_OBJECT="$BUCKET/signal/done"
 # instance metadata.
 SECRET_PROJECT="infino-dev-ci"
 
+# The value goes to stdout only; gcloud's errors go to stderr, which is the
+# box log, so a failed read says whether the secret is missing or denied.
 cloud_secret() {
   gcloud secrets versions access latest --secret="$1" --project="$SECRET_PROJECT" \
-    --quiet 2>/dev/null
+    --quiet
 }
 
 cloud_install_deps() {

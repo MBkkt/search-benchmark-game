@@ -21,7 +21,7 @@ cloud_get() { aws s3 cp "s3://$BUCKET/$1" "$2" --region "$REGION"; }
 # namespace as the done parameter.
 cloud_secret() {
   aws ssm get-parameter --name "/sbg-bench/$1" --with-decryption \
-    --query Parameter.Value --output text --region "$REGION" 2>/dev/null
+    --query Parameter.Value --output text --region "$REGION"
 }
 cloud_put() { aws s3 cp "$1" "s3://$BUCKET/$2" --region "$REGION"; }
 
