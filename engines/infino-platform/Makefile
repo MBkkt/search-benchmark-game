@@ -24,7 +24,7 @@ compile: target/release/build_index target/release/do_query
 
 target/release/build_index target/release/do_query &:
 	@echo "\n\n\n--- Building infino-platform's binary ---" >&2
-	@RUSTFLAGS='-C target-cpu=native' cargo build --release --bin build_index --bin do_query
+	@cargo build --release --bin build_index --bin do_query
 
 # Loads $(CORPUS) into the hosted table. Reuses the table if it already holds
 # the corpus; fails if it holds anything else.

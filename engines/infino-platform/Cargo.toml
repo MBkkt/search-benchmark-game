@@ -30,8 +30,9 @@ serde_json = "1"
 # client and TLS as infino's `remote` feature.
 ureq = { version = "2", features = ["json", "tls"] }
 
+# A plain release build: no LTO, default codegen units. This binary's own
+# speed is never measured (latency is the platform's x-infino-query-time), and
+# fat LTO over infino's `remote` dependencies (DataFusion) runs a 16 GiB bench
+# box out of memory when both binaries link at once.
 [profile.release]
-lto = true
 opt-level = 3
-overflow-checks = false
-codegen-units = 1
