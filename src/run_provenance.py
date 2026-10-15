@@ -33,7 +33,38 @@ def _line_count(file_path):
         return None
 
 
-def run_provenance(query_path, commands, started_utc, engines=None):
+# Engines that query the hosted platform instead of a local index. client.py
+# imports this list.
+HOSTED_ENGINES = ("infino-platform",)
+
+
+def _hosted_table():
+    """The hosted table name; same rule as `table_name` in
+    engines/infino-platform/src/lib.rs."""
+    name = os.environ.get("INFINO_BENCH_TABLE")
+    if name:
+        return name
+    corpus = os.environ.get("INFINO_BENCH_CORPUS_NAME")
+    scale = os.environ.get("INFINO_BENCH_SCALE")
+    if corpus and scale:
+        return ("%s_%s" % (corpus, scale)).lower()
+    return "sbg"
+
+
+def _hosted(engines):
+    """The table each hosted engine read, and how it was timed. Hosted engines
+    don't read the corpus file or INDEX_URI recorded above. The endpoint is
+    left out: it is kept in the secret store, and results are published."""
+    return {
+        # Hosted latency is the platform's own query time from this response
+        # header, not the round trip (see client.py).
+        engine: {"table": _hosted_table(), "timing": "x-infino-query-time"}
+        for engine in engines or ()
+        if engine in HOSTED_ENGINES
+    }
+
+
+def run_provenance(query_path, commands, started_utc, engines=None, failed=None):
     """The `run` block written beside details/index_sizes/results."""
     run = {
         "started_utc": started_utc,
@@ -41,6 +72,11 @@ def run_provenance(query_path, commands, started_utc, engines=None):
     }
     if commands:
         run["commands"] = list(commands)
+    hosted = _hosted(engines)
+    if hosted:
+        run["hosted"] = hosted
+    if failed:
+        run["failed_engines"] = dict(failed)
 
     builds = _engine_builds(engines)
     if builds:
@@ -229,14 +265,14 @@ def _build_stats():
     return stats
 
 
-def collect(query_path, commands, started_utc, engines=None):
+def collect(query_path, commands, started_utc, engines=None, failed=None):
     """`run_provenance`, with any failure reduced to an error string.
 
     The caller is a bench run that has already spent hours; it must finish and
     write its results whatever happens here.
     """
     try:
-        return run_provenance(query_path, commands, started_utc, engines)
+        return run_provenance(query_path, commands, started_utc, engines, failed)
     except Exception as e:  # noqa: BLE001 - deliberately total
         return {"error": "run metadata collection failed: %s" % e}
 

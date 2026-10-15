@@ -14,6 +14,12 @@ COMMANDS ?= TOP_10 TOP_100 TOP_1000 TOP_100_COUNT COUNT
 # lucene-named column as the 1.00 baseline, so the plain build is the baseline
 # and the doc-reordered build reads as a ratio against it.
 ENGINES ?= infino-0.11.2 infino-main tantivy-0.26 lucene-10.5.0 lucene-10.5.0-bp iresearch-26.03.1
+# Hosted engines appended last, e.g. PLATFORM_ENGINES=infino-platform. The
+# nightly sets it only when the platform's credentials and table are ready, so
+# a run without them benches the local engines as before. An ENGINES given on
+# the command line replaces the whole list and this is not appended.
+PLATFORM_ENGINES ?=
+ENGINES += $(PLATFORM_ENGINES)
 QUERIES ?= queries.txt
 PORT ?= 8080
 WARMUP_TIME ?= 60
@@ -78,6 +84,9 @@ bench-full:
 #
 # INDEX_URI is the store of record. CACHE_DIR is a local disk cache in front of
 # it and holds no authority: deleting it costs fetches, never data.
+#
+# Add infino-platform to SCALE_ENGINES for a hosted column. It uses INFINO_HOST
+# and INFINO_API_KEY, not INDEX_URI (see engines/infino-platform/Makefile).
 SCALE_ENGINES ?= infino-branch
 CACHE_BUDGET_GB ?= 4096
 # A scale run uses the host's cores for one query. The nightly does not set

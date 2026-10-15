@@ -17,6 +17,12 @@ cloud_install_deps() {
 }
 
 cloud_get() { aws s3 cp "s3://$BUCKET/$1" "$2" --region "$REGION"; }
+# Secrets are SSM SecureString parameters under /sbg-bench/, the same
+# namespace as the done parameter.
+cloud_secret() {
+  aws ssm get-parameter --name "/sbg-bench/$1" --with-decryption \
+    --query Parameter.Value --output text --region "$REGION"
+}
 cloud_put() { aws s3 cp "$1" "s3://$BUCKET/$2" --region "$REGION"; }
 
 cloud_signal() {

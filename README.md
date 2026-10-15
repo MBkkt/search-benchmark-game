@@ -147,6 +147,75 @@ crate comes from):
 binary and index in the last engine slot, so a fork page can show how much of a
 branch-vs-main delta is measurement position rather than code.
 
+`infino-platform` benchmarks infino on the hosted infino platform. Each query is
+an HTTPS request, and its latency is the platform's own query time from the
+`x-infino-query-time` response header, so the network and the platform's
+gateway are not counted. It is a separate engine with its own code, built
+against the published infino 0.11.2 crate so the client matches the platform's
+release; it shares nothing with the local infino engines.
+
+Set `INFINO_HOST` (`https://<gateway>/v1/<database>`) and `INFINO_API_KEY`, in
+the environment or in an uncommitted `.env` of plain `KEY=value` lines. The
+table is `INFINO_BENCH_TABLE`, defaulting to `<corpus>_<scale>` on a scale run
+(`webcrawl_1b`) and `sbg` otherwise.
+
+- `make index` loads the corpus and waits until every row is visible. An
+  existing table is reused if its row count matches the corpus; otherwise the
+  load fails, and the table must be dropped by hand.
+- Before benching, the engine checks the table's row count against the corpus
+  (or the scale) and fails on a mismatch.
+- The platform allows 20 requests a second per account. The engine paces
+  itself at `INFINO_BENCH_REQUESTS_PER_SEC` (default 18); the pause is never
+  part of a measured query time.
+  A rate-limited request is retried after 1s, and a gateway error
+  (502/503/504) or dropped connection up to 3 times; any other error stops the
+  engine.
+- If an engine exits, or this engine doesn't answer within
+  `QUERY_TIMEOUT_SECS` (default 600), it is dropped from the results and listed
+  under `run.failed_engines`. A failed local engine makes the run exit non-zero;
+  a failed hosted engine only loses its own column.
+- Accounts have a row limit (10M by default), so 100M and 1B tables need a
+  higher limit.
+
+```sh
+make index bench-full ENGINES=infino-platform CORPUS=$PWD/corpus.json
+```
+
+The official main nightly adds this column (`PLATFORM_ENGINES=infino-platform`)
+when the bench box can read the platform's credentials from the cloud's secret
+store; without them it is skipped and the local engines are benched as before.
+Branch runs never include it. The nightly benches table `sbg_nightly`, which
+the first run loads (about 25 minutes) and later runs reuse. The column adds
+about an hour to the nightly, mostly the paced queries.
+
+One-time setup, GCP (the default cloud). Secret Manager must be enabled in
+`infino-dev-ci`:
+
+```sh
+printf '%s' 'https://<gateway>/v1/<database>' | gcloud secrets create sbg-infino-host \
+  --project infino-dev-ci --data-file=-
+printf '%s' '<api key>' | gcloud secrets create sbg-infino-api-key \
+  --project infino-dev-ci --data-file=-
+for s in sbg-infino-host sbg-infino-api-key; do
+  gcloud secrets add-iam-policy-binding "$s" --project infino-dev-ci \
+    --member serviceAccount:sbg-bench-vm@infino-dev-ci.iam.gserviceaccount.com \
+    --role roles/secretmanager.secretAccessor
+done
+```
+
+On AWS the same two values are SSM `SecureString` parameters
+`/sbg-bench/sbg-infino-host` and `/sbg-bench/sbg-infino-api-key`, readable by
+the bench box's role (`ssm:GetParameter` and `kms:Decrypt`).
+
+To check the column on the CI box without publishing anything, dispatch the
+nightly with `platform_only`. It benches `infino-platform` alone on
+`sbg_nightly` and writes per-command latency to the job summary; missing
+secrets or a failed column fail the run.
+
+```sh
+gh workflow run nightly-bench.yml --ref <branch> -f platform_only=true
+```
+
 infino is benchmarked on its **optimized paths only**. Commands without a
 first-class implementation return `UNSUPPORTED` rather than falling back to
 a slower workaround — so every reported number reflects infino's actual engine.
