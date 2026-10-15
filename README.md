@@ -207,6 +207,15 @@ On AWS the same two values are SSM `SecureString` parameters
 `/sbg-bench/sbg-infino-host` and `/sbg-bench/sbg-infino-api-key`, readable by
 the bench box's role (`ssm:GetParameter` and `kms:Decrypt`).
 
+To check the column on the CI box without publishing anything, dispatch the
+nightly with `platform_only`. It benches `infino-platform` alone on
+`sbg_nightly` and writes per-command latency to the job summary; missing
+secrets or a failed column fail the run.
+
+```sh
+gh workflow run nightly-bench.yml --ref <branch> -f platform_only=true
+```
+
 infino is benchmarked on its **optimized paths only**. Commands without a
 first-class implementation return `UNSUPPORTED` rather than falling back to
 a slower workaround — so every reported number reflects infino's actual engine.

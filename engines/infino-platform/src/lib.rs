@@ -5,8 +5,8 @@
 //! table on the hosted platform, and `do_query` sends each query to it over
 //! HTTPS, timing it by the platform's own query-time header.
 
+use std::cell::Cell;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use arrow_schema::{DataType, Field, Schema};
@@ -164,7 +164,7 @@ pub struct HostedQueries {
     table: String,
     bearer: String,
     interval: Duration,
-    last_sent: Mutex<Option<Instant>>,
+    last_sent: Cell<Option<Instant>>,
 }
 
 impl HostedQueries {
@@ -187,7 +187,7 @@ impl HostedQueries {
             table: table.to_string(),
             bearer: format!("Bearer {key}"),
             interval: Duration::from_secs_f64(1.0 / per_sec),
-            last_sent: Mutex::new(None),
+            last_sent: Cell::new(None),
         }
     }
 
@@ -268,14 +268,13 @@ impl HostedQueries {
 
     /// Wait until `interval` has passed since the previous request.
     fn pace(&self) {
-        let mut last = self.last_sent.lock().expect("pace lock");
-        if let Some(prev) = *last {
+        if let Some(prev) = self.last_sent.get() {
             let since = prev.elapsed();
             if since < self.interval {
                 std::thread::sleep(self.interval - since);
             }
         }
-        *last = Some(Instant::now());
+        self.last_sent.set(Some(Instant::now()));
     }
 }
 

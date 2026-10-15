@@ -148,20 +148,31 @@ else
   cloud_put corpus.json corpus.json
 fi
 
-# Platform check: the infino-platform column alone, on the nightly's table.
-# Unlike the nightly, missing credentials or a failed table are errors here,
-# since checking them is the point. Results go to their own key, never the
-# canonical ones.
-if [ "$PLATFORM_ONLY" = "true" ]; then
+# The infino-platform column's credentials come from the cloud's secret store
+# (cloud_secret), never this script, which is instance metadata. They are
+# written to the engine's .env, readable by the bench user only. Its table is
+# loaded once and reused while its row count matches the corpus.
+export INFINO_BENCH_TABLE=sbg_nightly
+platform_credentials() {
+  local host key
   host=$(cloud_secret sbg-infino-host) && key=$(cloud_secret sbg-infino-api-key) \
-    && [ -n "$host" ] && [ -n "$key" ] \
-    || { echo "infino-platform: cannot read sbg-infino-host / sbg-infino-api-key from the secret store"; exit 1; }
+    && [ -n "$host" ] && [ -n "$key" ] || return 1
   (umask 077; printf 'INFINO_HOST=%s\nINFINO_API_KEY=%s\n' "$host" "$key" > .env)
-  unset host key
-  export INFINO_BENCH_TABLE=sbg_nightly
+}
+
+# Platform check: the infino-platform column alone, on the nightly's table.
+# Unlike the nightly, missing credentials, a failed table or a column that
+# fails mid-bench are all errors here, since checking them is the point.
+# Results go to their own key, never the canonical ones.
+if [ "$PLATFORM_ONLY" = "true" ]; then
+  platform_credentials \
+    || { echo "infino-platform: cannot read sbg-infino-host / sbg-infino-api-key from the secret store"; exit 1; }
   make ENGINES=infino-platform compile index
   make ENGINES=infino-platform bench-full
   cloud_put results-full.json results-full-platform-check.json
+  # client.py exits 0 when only a hosted engine failed (the nightly keeps its
+  # local columns); here that failure is the result.
+  python3 -c 'import json, sys; f = json.load(open("results-full.json"))["run"].get("failed_engines"); sys.exit(f and "infino-platform failed: %s" % f)'
   exit 0
 fi
 
@@ -187,18 +198,12 @@ elif [ "$IS_BRANCH_RUN" = "true" ]; then
 fi
 
 # The hosted platform column, on the official main nightly only: it measures
-# the platform service, which no branch run changes. Its credentials come from
-# the cloud's secret store (cloud_secret), never the startup script, which is
-# instance metadata. Without them, or if the platform's build or table fails,
-# the column is skipped and the local engines are benched as before. The table
-# is loaded once and reused while its row count matches the corpus.
+# the platform service, which no branch run changes. Without its credentials,
+# or if its build or table fails, the column is skipped and the local engines
+# are benched as before.
 BENCH_ARGS=()
 if [ "$IS_BRANCH_RUN" = "false" ]; then
-  if host=$(cloud_secret sbg-infino-host) && key=$(cloud_secret sbg-infino-api-key) \
-      && [ -n "$host" ] && [ -n "$key" ]; then
-    (umask 077; printf 'INFINO_HOST=%s\nINFINO_API_KEY=%s\n' "$host" "$key" > .env)
-    unset host key
-    export INFINO_BENCH_TABLE=sbg_nightly
+  if platform_credentials; then
     if make ENGINES=infino-platform compile index; then
       BENCH_ARGS+=(PLATFORM_ENGINES=infino-platform)
     else

@@ -33,27 +33,14 @@ def _line_count(file_path):
         return None
 
 
-# Same list as client.py.
+# Engines that query the hosted platform instead of a local index. client.py
+# imports this list.
 HOSTED_ENGINES = ("infino-platform",)
 
 
-def _env_file_value(key):
-    """`key` from the repo's .env, or None."""
-    env_path = path.join(path.dirname(path.dirname(path.abspath(__file__))), ".env")
-    try:
-        with open(env_path) as f:
-            for line in f:
-                name, sep, value = line.strip().partition("=")
-                if sep and name.strip() == key:
-                    return value.strip()
-    except OSError:
-        pass
-    return None
-
-
 def _hosted_table():
-    """The hosted table name; same rule as `hosted_table` in
-    engines/infino-branch/src/lib.rs."""
+    """The hosted table name; same rule as `table_name` in
+    engines/infino-platform/src/lib.rs."""
     name = os.environ.get("INFINO_BENCH_TABLE")
     if name:
         return name
@@ -65,19 +52,16 @@ def _hosted_table():
 
 
 def _hosted(engines):
-    """The endpoint and table each hosted engine read. Hosted engines don't
-    read the corpus file or INDEX_URI recorded above."""
-    hosted = {}
-    for engine in engines or ():
-        if engine in HOSTED_ENGINES:
-            endpoint = os.environ.get("INFINO_HOST") or _env_file_value("INFINO_HOST")
-            # Hosted latency is the platform's own query time from this
-            # response header, not the round trip (see client.py).
-            entry = {"table": _hosted_table(), "timing": "x-infino-query-time"}
-            if endpoint:
-                entry["endpoint"] = endpoint
-            hosted[engine] = entry
-    return hosted
+    """The table each hosted engine read, and how it was timed. Hosted engines
+    don't read the corpus file or INDEX_URI recorded above. The endpoint is
+    left out: it is kept in the secret store, and results are published."""
+    return {
+        # Hosted latency is the platform's own query time from this response
+        # header, not the round trip (see client.py).
+        engine: {"table": _hosted_table(), "timing": "x-infino-query-time"}
+        for engine in engines or ()
+        if engine in HOSTED_ENGINES
+    }
 
 
 def run_provenance(query_path, commands, started_utc, engines=None, failed=None):

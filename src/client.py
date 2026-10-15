@@ -9,10 +9,9 @@ import signal
 import threading
 from collections import defaultdict
 
-COMMANDS = os.environ['COMMANDS'].split(' ')
+from run_provenance import HOSTED_ENGINES
 
-# Engines that query the hosted platform instead of a local index.
-HOSTED_ENGINES = ("infino-platform",)
+COMMANDS = os.environ['COMMANDS'].split(' ')
 
 # Seconds to wait for a hosted engine's answer before treating it as hung. The
 # first answer also covers engine startup, so it gets longer.
