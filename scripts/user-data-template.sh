@@ -174,8 +174,8 @@ if [ "$PLATFORM" = "only" ]; then
   platform_setup
   make ENGINES=infino-platform bench-full
   cloud_put results-full.json results-full-platform-check.json
-  # client.py exits 0 when only a hosted engine failed (the nightly keeps its
-  # local columns); here that failure is the result.
+  # client.py exits 0 when only a hosted engine failed (a compare run keeps
+  # its local columns); here that failure is the result.
   python3 -c 'import json, sys; f = json.load(open("results-full.json"))["run"].get("failed_engines"); sys.exit(f and "infino-platform failed: %s" % f)'
   exit 0
 fi

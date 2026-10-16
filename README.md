@@ -188,9 +188,8 @@ the workflow's `platform` dispatch input:
 - `compare`: adds `infino-platform` as the last engine of that run, next to
   whatever else the run benches. On a main run (`infino_branch` = `main`) the
   results publish as the official results, platform column included, until the
-  next scheduled nightly replaces them. On a same-box branch run the column
-  shows on the fork page; a fast branch run (`same_box` off) benches it but
-  its page carries only the branch column.
+  next scheduled nightly replaces them. On a branch run the column shows on
+  the fork page, same-box or not.
 - `only`: benches `infino-platform` alone, publishes nothing, and writes
   per-command latency to the job summary. A quick check that the column works
   on the CI box.
