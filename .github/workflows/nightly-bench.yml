@@ -11,9 +11,10 @@ name: Nightly benchmark
 # Everything cloud-specific lives in scripts/bench-cloud.sh (runner side) and
 # scripts/cloud-shim-{gcp,aws}.sh (box side), so this workflow stays one path.
 # The nightly benches two infino columns: `infino-0.11.2` (the published crate)
-# and `infino-main` (the tip of infino-ai/infino main), plus `infino-platform`
-# (infino on the hosted platform) when the box can read the platform's
-# credentials from the secret store; see README.
+# and `infino-main` (the tip of infino-ai/infino main). `infino-platform`
+# (infino on the hosted platform) is opt-in: a dispatch with `platform: compare`
+# adds it to that run's engines, and the scheduled nightly never includes it.
+# See README.
 #
 # workflow_dispatch accepts an optional `infino_branch` input. When set to
 # anything other than "main", the dispatched ref is benched as the
@@ -51,10 +52,11 @@ on:
         type: boolean
         default: true
         required: false
-      platform_only:
-        description: 'Check the infino-platform column on the CI box: bench it alone on the nightly table and publish nothing (results go to the job summary). Ignores the other inputs. Fails if the platform secrets are missing.'
-        type: boolean
-        default: false
+      platform:
+        description: 'infino-platform (infino on the hosted platform). off = no platform column (default; the scheduled nightly is always off). compare = add the column to this run''s engines; published like the rest of the run (a main run publishes to the official results until the next nightly). only = bench it alone and publish nothing (latency to the job summary). compare and only fail if the platform secrets are missing.'
+        type: choice
+        options: ['off', compare, only]
+        default: 'off'
         required: false
 
 permissions:
@@ -74,7 +76,8 @@ jobs:
       # this is 'false' there, and a main run skips the baseline regardless (see the
       # IS_BRANCH_RUN guard in user-data).
       SAME_BOX: ${{ inputs.same_box && 'true' || 'false' }}
-      PLATFORM_ONLY: ${{ inputs.platform_only && 'true' || 'false' }}
+      # The scheduled run has no inputs, so it is always off.
+      PLATFORM: ${{ inputs.platform || 'off' }}
 
     steps:
       # Full history, not the default depth-1. The publish steps below rebase
@@ -173,7 +176,7 @@ jobs:
 
       - name: Download results
         run: |
-          if [ "$PLATFORM_ONLY" = "true" ]; then
+          if [ "$PLATFORM" = "only" ]; then
             scripts/bench-cloud.sh fetch results-full-platform-check.json results-full-platform-check.json
           elif [ "$INFINO_BRANCH" = "main" ] && [ "$INFINO_REPO" = "infino-ai/infino" ]; then
             scripts/bench-cloud.sh fetch results.json      results.json
@@ -187,7 +190,7 @@ jobs:
       # Platform check: per-command latency of the infino-platform column, from
       # the platform's x-infino-query-time header, to the job summary.
       - name: Summarize platform check
-        if: env.PLATFORM_ONLY == 'true'
+        if: env.PLATFORM == 'only'
         run: |
           python3 - results-full-platform-check.json >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import json, math, statistics, sys
@@ -212,7 +215,7 @@ jobs:
       # baseline's infino-main column (see scripts/compare_results.py) and
       # post a markdown table to the job summary. No commit to master.
       - name: Compare branch results vs main
-        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
+        if: env.PLATFORM != 'only' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         run: |
           RUN_SLUG="${INFINO_REPO//\//-}-${INFINO_BRANCH//\//-}"
           RUN_LABEL="${INFINO_REPO}@${INFINO_BRANCH}"
@@ -233,7 +236,7 @@ jobs:
       # carries tantivy/lucene + main's infino). It lives at <fork_user>/full;
       # the latest branch run from a fork overwrites that fork's page.
       - name: Build fork full-benchmark page
-        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
+        if: env.PLATFORM != 'only' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         id: fork-page
         run: |
           RUN_SLUG="${INFINO_REPO//\//-}-${INFINO_BRANCH//\//-}"
@@ -257,7 +260,7 @@ jobs:
       # Fresh token scoped to the SBG repo for the page push (the app-token from
       # launch has likely expired after the ~2 h bench).
       - name: Generate token to push fork page
-        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
+        if: env.PLATFORM != 'only' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         uses: actions/create-github-app-token@v1
         id: fork-push-token
         with:
@@ -267,7 +270,7 @@ jobs:
           repositories: "search-benchmark-game"
 
       - name: Commit and push fork page
-        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
+        if: env.PLATFORM != 'only' && (env.INFINO_BRANCH != 'main' || env.INFINO_REPO != 'infino-ai/infino')
         run: |
           FORK_USER="${{ steps.fork-page.outputs.fork_user }}"
           PAGE_DIR="web/build/${FORK_USER}/full"
@@ -321,7 +324,7 @@ jobs:
       # The initial app-token may have expired (bench takes ~2 h, token lasts 1 h).
       # Generate a fresh one just for the push.
       - name: Generate fresh token for push
-        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino')
+        if: env.PLATFORM != 'only' && (env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino')
         uses: actions/create-github-app-token@v1
         id: push-token
         with:
@@ -331,7 +334,7 @@ jobs:
           repositories: "search-benchmark-game"
 
       - name: Commit and push results
-        if: env.PLATFORM_ONLY != 'true' && (env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino')
+        if: env.PLATFORM != 'only' && (env.INFINO_BRANCH == 'main' && env.INFINO_REPO == 'infino-ai/infino')
         run: |
           git config user.name  "sbg-ci"
           git config user.email "sbg-ci@infino.ai"

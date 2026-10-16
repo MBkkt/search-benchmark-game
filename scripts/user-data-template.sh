@@ -61,10 +61,13 @@ SBG_BRANCH="__SBG_BRANCH__"
 # the branch column alone, compared cross-run against the committed baseline.
 # It has no effect on a main run — see IS_BRANCH_RUN below.
 SAME_BOX="__SAME_BOX__"
-# When "true", bench the infino-platform column alone and publish nothing: a
-# check that the platform column works on the CI box (see the block after the
-# corpus fetch). Branch, repo and same-box settings are ignored.
-PLATFORM_ONLY="__PLATFORM_ONLY__"
+# The infino-platform column (infino on the hosted platform), opt-in from a
+# dispatch; the scheduled nightly never includes it.
+#   off      no platform column (the default)
+#   compare  add the column to this run's engines, whatever the run benches
+#   only     bench the column alone and publish nothing: a check that it works
+#            on the CI box. Branch, repo and same-box settings are ignored.
+PLATFORM="__PLATFORM__"
 
 # A branch/fork run is anything other than the official infino-ai/infino main.
 # A main run has no branch column: infino-main already covers that code.
@@ -83,7 +86,7 @@ rustup toolchain install 1.95.0
 
 # JDK 21 only needed for lucene — benched on the official main nightly and on
 # same-box runs; skipped on fast branch/fork runs (the branch column only).
-if [ "$PLATFORM_ONLY" != "true" ] && \
+if [ "$PLATFORM" != "only" ] && \
   { { [ "$INFINO_BRANCH" = "main" ] && [ "$INFINO_REPO" = "infino-ai/infino" ]; } \
   || [ "$SAME_BOX" = "true" ]; }; then
   if [ ! -d "$HOME/jdk-21.0.8+9" ]; then
@@ -126,7 +129,7 @@ git -C "$HOME/search-benchmark-game" checkout "$SBG_BRANCH"
 # Its source is a public submodule pinned via an SSH URL; this box authenticates
 # over HTTPS, so rewrite git@ -> https and fetch it plus its nested third_party
 # recursively. Skipped on branch/fork runs to avoid the large checkout.
-if [ "$IS_BRANCH_RUN" = "false" ] && [ "$PLATFORM_ONLY" != "true" ]; then
+if [ "$IS_BRANCH_RUN" = "false" ] && [ "$PLATFORM" != "only" ]; then
   git config --global url."https://github.com/".insteadOf "git@github.com:"
   git -C "$HOME/search-benchmark-game" submodule update --init --recursive \
     engines/iresearch-26.03.1/serenedb
@@ -151,23 +154,24 @@ fi
 # The infino-platform column's credentials come from the cloud's secret store
 # (cloud_secret), never this script, which is instance metadata. They are
 # written to the engine's .env, readable by the bench user only. Its table is
-# loaded once and reused while its row count matches the corpus.
+# loaded once and reused while its row count matches the corpus. The column
+# was asked for, so missing credentials or a failed build or table fail the
+# run here, before any local engine is benched.
 export INFINO_BENCH_TABLE=sbg_nightly
-platform_credentials() {
+platform_setup() {
   local host key
   host=$(cloud_secret sbg-infino-host) && key=$(cloud_secret sbg-infino-api-key) \
-    && [ -n "$host" ] && [ -n "$key" ] || return 1
+    && [ -n "$host" ] && [ -n "$key" ] \
+    || { echo "infino-platform: cannot read sbg-infino-host / sbg-infino-api-key from the secret store"; return 1; }
   (umask 077; printf 'INFINO_HOST=%s\nINFINO_API_KEY=%s\n' "$host" "$key" > .env)
+  make ENGINES=infino-platform compile index
 }
 
-# Platform check: the infino-platform column alone, on the nightly's table.
-# Unlike the nightly, missing credentials, a failed table or a column that
-# fails mid-bench are all errors here, since checking them is the point.
+# Platform check: the infino-platform column alone, on the nightly's table. A
+# column that fails mid-bench is an error too, since checking it is the point.
 # Results go to their own key, never the canonical ones.
-if [ "$PLATFORM_ONLY" = "true" ]; then
-  platform_credentials \
-    || { echo "infino-platform: cannot read sbg-infino-host / sbg-infino-api-key from the secret store"; exit 1; }
-  make ENGINES=infino-platform compile index
+if [ "$PLATFORM" = "only" ]; then
+  platform_setup
   make ENGINES=infino-platform bench-full
   cloud_put results-full.json results-full-platform-check.json
   # client.py exits 0 when only a hosted engine failed (the nightly keeps its
@@ -197,20 +201,19 @@ elif [ "$IS_BRANCH_RUN" = "true" ]; then
   MAKE_ARGS+=(ENGINES=infino-branch)
 fi
 
-# The hosted platform column, on the official main nightly only: it measures
-# the platform service, which no branch run changes. Without its credentials,
-# or if its build or table fails, the column is skipped and the local engines
-# are benched as before.
+# platform=compare: bench infino-platform last, after this run's engines. It is
+# set up on its own, so the compile/index below never touch it. A main run
+# appends it to the Makefile's default list; a branch run names its engines on
+# the command line, which replaces that list, so it is appended there instead.
+# A column that fails mid-bench is dropped and listed under
+# run.failed_engines; the other engines' results stand.
 BENCH_ARGS=()
-if [ "$IS_BRANCH_RUN" = "false" ]; then
-  if platform_credentials; then
-    if make ENGINES=infino-platform compile index; then
-      BENCH_ARGS+=(PLATFORM_ENGINES=infino-platform)
-    else
-      echo "warning: infino-platform failed to build or load its table; skipping its column"
-    fi
+if [ "$PLATFORM" = "compare" ]; then
+  platform_setup
+  if [ "${#MAKE_ARGS[@]}" -gt 0 ]; then
+    BENCH_ARGS+=("${MAKE_ARGS[0]} infino-platform")
   else
-    echo "infino-platform: no credentials in the secret store; skipping its column"
+    BENCH_ARGS+=(PLATFORM_ENGINES=infino-platform)
   fi
 fi
 

@@ -57,7 +57,7 @@ build_user_data() {
       -e "s|__INFINO_REPO__|${INFINO_REPO}|g" \
       -e "s|__SBG_BRANCH__|${SBG_BRANCH}|g" \
       -e "s|__SAME_BOX__|${SAME_BOX}|g" \
-      -e "s|__PLATFORM_ONLY__|${PLATFORM_ONLY:-false}|g" \
+      -e "s|__PLATFORM__|${PLATFORM:-off}|g" \
     > "$out"
   grep -q '__CLOUD_SHIM__' "$out" && die "shim was not spliced in"
   bash -n "$out" || die "generated user-data is not valid bash"
