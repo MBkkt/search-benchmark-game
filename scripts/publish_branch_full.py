@@ -28,6 +28,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from run_provenance import HOSTED_ENGINES  # noqa: E402
+
 
 # The branch build is benched twice on a same-box run — first and last in the
 # engine order — under these two engine keys (see engines/infino-branch-last
@@ -56,9 +60,10 @@ def is_same_box(branch_full: dict) -> bool:
 
     Detected by the presence of a non-branch engine column: the branch's own
     two positions (`infino-branch` first, `infino-branch-last` last) don't
-    count."""
+    count, and neither does a hosted column (`platform: compare`), which any
+    run can add."""
     for engines in branch_full.get("results", {}).values():
-        if any(k not in BRANCH_ENGINES for k in engines):
+        if any(k not in BRANCH_ENGINES and k not in HOSTED_ENGINES for k in engines):
             return True
     return False
 
@@ -104,16 +109,29 @@ def merge(main_full: dict, branch_full: dict, engine_key: str, label: str) -> di
     Fallback for a branch-only run (same-box A/B off): the run produced no
     same-instance baseline, so the branch column is compared against the
     committed baseline. This is a *cross-run* comparison — unchanged query
-    classes can drift by the box-to-box delta between the two nightlies."""
+    classes can drift by the box-to-box delta between the two nightlies.
+
+    A hosted column the run benched (`platform: compare`) is carried over too.
+    Its latency is the platform's own query time, so the bench box it ran from
+    doesn't enter into it."""
     branch_results = branch_full["results"]
+    hosted = sorted({k for engines in branch_results.values() for k in engines
+                     if k in HOSTED_ENGINES})
     for mode, engines in main_full["results"].items():
+        for key in hosted:
+            if key in branch_results.get(mode, {}):
+                engines[key] = branch_results[mode][key]
         branch_col = branch_results.get(mode, {}).get(BRANCH_ENGINE_FIRST)
         if branch_col is None:
             print(f"  warning [{mode}]: branch run has no {BRANCH_ENGINE_FIRST} "
                   f"column; skipping this mode for the branch", file=sys.stderr)
             continue
         engines[engine_key] = branch_col
-    main_full.setdefault("details", {})[engine_key] = [
+    details = main_full.setdefault("details", {})
+    for key in hosted:
+        if key in branch_full.get("details", {}):
+            details[key] = branch_full["details"][key]
+    details[engine_key] = [
         f"infino built from {label} (this fork's latest branch run; compared "
         f"against the committed baseline — cross-run, not same-box)."
     ]

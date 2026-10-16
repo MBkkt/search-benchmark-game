@@ -181,12 +181,31 @@ table is `INFINO_BENCH_TABLE`, defaulting to `<corpus>_<scale>` on a scale run
 make index bench-full ENGINES=infino-platform CORPUS=$PWD/corpus.json
 ```
 
-The official main nightly adds this column (`PLATFORM_ENGINES=infino-platform`)
-when the bench box can read the platform's credentials from the cloud's secret
-store; without them it is skipped and the local engines are benched as before.
-Branch runs never include it. The nightly benches table `sbg_nightly`, which
-the first run loads (about 25 minutes) and later runs reuse. The column adds
-about an hour to the nightly, mostly the paced queries.
+The nightly does not bench this column on its own schedule. It's opt-in, through
+the workflow's `platform` dispatch input:
+
+- `off` (the default, and always the scheduled nightly): no platform column.
+- `compare`: adds `infino-platform` as the last engine of that run, next to
+  whatever else the run benches. On a main run (`infino_branch` = `main`) the
+  results publish as the official results, platform column included, until the
+  next scheduled nightly replaces them. On a branch run the column shows on
+  the fork page, same-box or not.
+- `only`: benches `infino-platform` alone, publishes nothing, and writes
+  per-command latency to the job summary. A quick check that the column works
+  on the CI box.
+
+```sh
+gh workflow run nightly-bench.yml --ref master -f platform=compare
+gh workflow run nightly-bench.yml --ref <branch> -f platform=only
+```
+
+`compare` and `only` read the platform's credentials from the cloud's secret
+store and fail the run if they are missing or the build or table step fails.
+A column that fails mid-bench fails an `only` run; on a `compare` run it is
+dropped and listed under `run.failed_engines`, and the other engines' results
+stand. Both bench table `sbg_nightly`, which is already loaded and is reused
+while its row count matches the corpus. The column adds about an hour to a
+run, mostly the paced queries.
 
 One-time setup, GCP (the default cloud). Secret Manager must be enabled in
 `infino-dev-ci`:
@@ -207,14 +226,6 @@ On AWS the same two values are SSM `SecureString` parameters
 `/sbg-bench/sbg-infino-host` and `/sbg-bench/sbg-infino-api-key`, readable by
 the bench box's role (`ssm:GetParameter` and `kms:Decrypt`).
 
-To check the column on the CI box without publishing anything, dispatch the
-nightly with `platform_only`. It benches `infino-platform` alone on
-`sbg_nightly` and writes per-command latency to the job summary; missing
-secrets or a failed column fail the run.
-
-```sh
-gh workflow run nightly-bench.yml --ref <branch> -f platform_only=true
-```
 
 infino is benchmarked on its **optimized paths only**. Commands without a
 first-class implementation return `UNSUPPORTED` rather than falling back to
