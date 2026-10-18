@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arrow_schema::{DataType, Field, Schema};
+use infino::config::CrcVerification;
 use infino::storage::{GcsStorageProvider, LocalFsStorageProvider, StorageProvider};
 use infino::superfile::builder::FtsConfig;
 use infino::supertable::manifest::list::PartitionStrategy;
@@ -124,11 +125,15 @@ pub fn options(storage: Arc<dyn StorageProvider>) -> SupertableOptions {
             // No idle MADV_DONTNEED sweep while benching: it would inject
             // cold-page spikes that belong to the sweeper, not the engine.
             mmap_cold_threshold_secs: 0,
-            // Verifying the CRC of every cached superfile at open costs tens of
-            // minutes on a multi-terabyte index.
-            verify_crc_on_open: std::env::var("INFINO_BENCH_VERIFY_CRC")
-                .map(|v| v != "0")
-                .unwrap_or(true),
+            // Unset benches the engine's own default. A scale run sets 0: even
+            // verifying once, as superfiles land in the cache, is a full pass
+            // over a multi-terabyte index. Any other value verifies on every
+            // open, the strictest and slowest policy.
+            crc_verification: match std::env::var("INFINO_BENCH_VERIFY_CRC").as_deref() {
+                Ok("0") => CrcVerification::Never,
+                Ok(_) => CrcVerification::Always,
+                Err(_) => CrcVerification::default(),
+            },
             ..Default::default()
         },
         Arc::new(HashSet::new),
