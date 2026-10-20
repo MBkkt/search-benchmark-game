@@ -29,17 +29,6 @@ body {
   color: #717171;
 }
 
-.headline-note {
-  font-size: 12px;
-  color: #717171;
-  margin-top: 10px;
-  line-height: 1.5;
-
-  code {
-    font-size: 11px;
-  }
-}
-
 // Fixed layout with the same first-column width in every summary table, so an
 // engine's column sits at the same place in each of them.
 .headline-table {
