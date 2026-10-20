@@ -4,6 +4,7 @@
   "Benchmarks infino's supertable query path — manifest + single superfile segment (built in multiple incremental commits, then compacted to one), each segment a valid Apache Parquet file with an embedded BM25 index.",
   "All segments preloaded into an in-memory reader tier; queries are fully synchronous (no per-query async/tokio overhead).",
   "Doc-at-a-time; term dictionary is an FST; postings are PFOR-delta encoded with a skip table.",
+  "Doc IDs are reordered using recursive graph bisection.",
   "BM25 with Lucene defaults (k1=1.2, b=0.75) and Lucene-style IDF.",
   "Per-doc length normalization precomputed at build time.",
   "Top-k uses BlockMaxWAND (single-term, AND) and WAND/BlockMaxWAND vs MaxScore/Block-Max-MaxScore (OR). SIMD-accelerated scoring (4 terms at a time).",
