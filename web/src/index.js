@@ -155,16 +155,18 @@ function engineLabel(name) {
   const base = pretty[m[1].toLowerCase()] || m[1];
   let rest = m[2];
   let sub = "";
-  if (/-bp$/.test(rest)) { rest = rest.replace(/-bp$/, ""); sub = "+ doc reordering"; }
+  let reordered = false;
+  if (/-bp$/.test(rest)) { rest = rest.replace(/-bp$/, ""); reordered = true; }
+  if (base === "infino" && !/^platform/.test(rest)) reordered = true;
   if (rest === "main") { rest = ""; sub = "main, unreleased"; }
   else if (base === "infino" && /^\d/.test(rest)) sub = "release";
   if (name.toLowerCase() === "turbopuffer") sub = "published numbers";
-  return { title: (base + " " + rest).trim(), sub };
+  return { title: (base + " " + rest).trim(), sub, reordered };
 }
 
 function EngineHeader({ name }) {
   const l = engineLabel(name);
-  return <span className="eng-h" title={name}>{l.title}{l.sub ? <small>{l.sub}</small> : null}</span>;
+  return <span className="eng-h" title={name}>{l.title}{l.sub ? <small>{l.sub}</small> : null}{l.reordered ? <small>+ doc reordering</small> : null}</span>;
 }
 
 // The engine with the lowest value in a row, or undefined when fewer than two

@@ -246,6 +246,10 @@ The index is built as multiple on-disk segments and then fully loaded into
 memory before benchmarking begins, so the query path is synchronous with no
 per-query I/O or async overhead.
 
+Compacting the segments into one reorders the documents by recursive graph
+bisection, as the Lucene `-bp` variant does. infino has no setting to turn it
+off, so there is no plain infino column to compare against.
+
 
 # Reproducing
 
