@@ -7,7 +7,7 @@ query path (manifest + per-segment fan-out) — the production query surface —
 built as multiple segments and read fully in memory.
 
 It builds against the **published crate**, pinned exactly to
-`infino = "=0.11.2"` — the version the engine is named for, not a
+`infino = "=0.11.7"` — the version the engine is named for, not a
 working-tree checkout.
 
 ## Scope: benchmarked commands

@@ -20,7 +20,7 @@ Note the `public_ip`. The key is written to `terraform/sbg-bench-key.pem`.
 
 ## Step 2 — Push the harness to the box (from your Mac)
 
-`infino-0.11.2` pulls the infino crate from crates.io, but the other two infino
+`infino-0.11.7` pulls the infino crate from crates.io, but the other two infino
 engines are path deps and need a checkout each on the box:
 
 | engine | path dep | put on the box at |
