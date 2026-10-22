@@ -132,7 +132,7 @@ git -C "$HOME/search-benchmark-game" checkout "$SBG_BRANCH"
 if [ "$IS_BRANCH_RUN" = "false" ] && [ "$PLATFORM" != "only" ]; then
   git config --global url."https://github.com/".insteadOf "git@github.com:"
   git -C "$HOME/search-benchmark-game" submodule update --init --recursive \
-    engines/iresearch-26.03.1/serenedb
+    engines/iresearch-26.10.3/serenedb
 fi
 
 cd "$HOME/search-benchmark-game"

@@ -20,25 +20,25 @@ It was with intersection_union which was improved by 15% before we optimized it 
 Fot other queries it gives around 1-2%, so mostly don't cost it.
 
 ```bash
-cd ./engines/iresearch
+cd ./engines/iresearch-26.10.3
 rm -rf ./pgo ./cs_pgo
 make clean
 make compile_gen_pgo
 cd ./../..
-SERVE_TYPE=serve_gen_pgo ENGINES=iresearch make bench
-cd ./engines/iresearch/pgo
+SERVE_TYPE=serve_gen_pgo ENGINES=iresearch-26.10.3 make bench
+cd ./engines/iresearch-26.10.3/pgo
 llvm-profdata-21 merge -output=./code.profdata ./code-*.profraw
 cd ./..
 # make clean
 # make compile_gen_cs_pgo
 # cd ./../..
-# SERVE_TYPE=serve_gen_cs_pgo ENGINES=iresearch make bench
-# cd ./engines/iresearch/cs_pgo
+# SERVE_TYPE=serve_gen_cs_pgo ENGINES=iresearch-26.10.3 make bench
+# cd ./engines/iresearch-26.10.3/cs_pgo
 # llvm-profdata-21 merge -output=./code.profdata ./../pgo/code.profdata ./code-*.profraw
 # mv ./code.profdata ./../pgo/code.profdata
 # cd ./..
 make clean
 make compile_use_pgo
 cd ./../..
-ENGINES=iresearch make bench
+ENGINES=iresearch-26.10.3 make bench
 ```
