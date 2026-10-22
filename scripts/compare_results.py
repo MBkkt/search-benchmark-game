@@ -36,15 +36,15 @@ def load_index_sizes(path):
 # Which infino column to read on each side, most-preferred first.
 #
 # The baseline is the committed nightly, which carries both `infino-main` (the
-# development line) and `infino-0.11.7` (the published crate); main is the right
+# development line) and `infino-0.11.9` (the published crate); main is the right
 # thing to judge a branch against. The experiment is a branch run, whose own
 # column is `infino-branch` — on a same-box run it also carries `infino-main`,
 # and preferring the branch column there is what makes this branch-vs-main
-# rather than main-vs-main. `infino-0.6` / `infino-0.11.7` trail both lists so a
+# rather than main-vs-main. `infino-0.6` / `infino-0.11.9` trail both lists so a
 # comparison against a baseline committed before these renames still resolves
 # a column instead of silently printing an empty table.
-BASELINE_ENGINES = ("infino-main", "infino-0.11.7", "infino-0.6")
-EXPERIMENT_ENGINES = ("infino-branch", "infino-main", "infino-0.11.7", "infino-0.6")
+BASELINE_ENGINES = ("infino-main", "infino-0.11.9", "infino-0.6")
+EXPERIMENT_ENGINES = ("infino-branch", "infino-main", "infino-0.11.9", "infino-0.6")
 
 
 def pick_engine(results, preference):

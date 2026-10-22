@@ -139,7 +139,7 @@ crate comes from):
 
 | engine | source | benched on |
 |---|---|---|
-| `infino-0.11.7` | the published crate, pinned to the 0.11.7 release | every nightly |
+| `infino-0.11.9` | the published crate, pinned to the 0.11.9 release | every nightly |
 | `infino-main` | `infino-ai/infino` at `main`, path-depped at `../../../infino-main` | every nightly, and as the baseline on a branch run |
 | `infino-branch` | the repo/ref dispatched into the workflow, path-depped at `../../../infino` | branch and fork runs only |
 
@@ -151,7 +151,7 @@ branch-vs-main delta is measurement position rather than code.
 an HTTPS request, and its latency is the platform's own query time from the
 `x-infino-query-time` response header, so the network and the platform's
 gateway are not counted. It is a separate engine with its own code, built
-against the published infino 0.11.7 crate so the client matches the platform's
+against the published infino 0.11.9 crate so the client matches the platform's
 release; it shares nothing with the local infino engines.
 
 Set `INFINO_HOST` (`https://<gateway>/v1/<database>`) and `INFINO_API_KEY`, in

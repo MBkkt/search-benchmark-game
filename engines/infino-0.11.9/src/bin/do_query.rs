@@ -4,8 +4,10 @@
 //! line per query (stdout is a LineWriter, so each newline flushes).
 //!
 //! Supported: COUNT, TOP_10/100/1000, TOP_{1,5,10,100,1000}_COUNT.
-//! COUNT and TOP_*_COUNT use the native count() path (posting-list traversal,
-//! no scoring). The query string passes through verbatim: infino parses
+//! COUNT uses the native count() path (posting-list traversal, no scoring).
+//! TOP_*_COUNT scores every match in one exhaustive pass (pruning off) and
+//! returns the top-k plus the exact count, matching how Lucene/tantivy
+//! answer this command. The query string passes through verbatim: infino parses
 //! the lucene clause sigils natively (`+term` must, `-term` must-not,
 //! bare term should) under `BoolMode::Or` as the default operator, and
 //! double-quoted runs are exact phrases verified against token
@@ -78,19 +80,13 @@ fn main() {
             "COUNT" => reader
                 .count(COLUMN, query, mode)
                 .map(|n| n as usize),
-            // TOP_k_COUNT: fetch the top-k results AND count all matches —
-            // two passes, matching what engines like Lucene do for this command.
+            // TOP_k_COUNT: fetch the top-k results AND count all matches in a
+            // single exhaustive pass (pruning off), matching how Lucene/tantivy
+            // answer this command. infino-ai/infino#1039: `bm25_hits_with_count`.
             "TOP_1_COUNT" | "TOP_5_COUNT" | "TOP_10_COUNT"
             | "TOP_100_COUNT" | "TOP_1000_COUNT" => reader
-                .bm25_search(
-                    COLUMN,
-                    query,
-                    top_k_count(command),
-                    search_opts(mode),
-                    None,
-                )
-                .and_then(|_| reader.count(COLUMN, query, mode))
-                .map(|n| n as usize),
+                .bm25_hits_with_count(COLUMN, query, top_k_count(command), search_opts(mode))
+                .map(|(_, n)| n as usize),
             _ => {
                 println!("UNSUPPORTED");
                 continue;

@@ -7,7 +7,7 @@ query path (manifest + per-segment fan-out) — the production query surface —
 built as multiple segments and read fully in memory.
 
 It builds against the **published crate**, pinned exactly to
-`infino = "=0.11.7"` — the version the engine is named for, not a
+`infino = "=0.11.9"` — the version the engine is named for, not a
 working-tree checkout.
 
 ## Scope: benchmarked commands
@@ -18,7 +18,8 @@ working-tree checkout.
 | union (`a b`) | ✅ | bare terms are shoulds under the `Or` default operator |
 | intersection (`+a +b`) | ✅ | `+` must clauses, parsed natively by infino |
 | mixed must/should (`+a b`) | ✅ | lucene `BooleanQuery` semantics: match on musts, shoulds raise scores |
-| `COUNT`, `TOP_*_COUNT` | ✅ benchmarked | native count path — posting-list traversal, no scoring |
+| `COUNT` | ✅ benchmarked | native count path — posting-list traversal, no scoring |
+| `TOP_*_COUNT` | ✅ benchmarked | one exhaustive scored pass (pruning off): top-k and exact count together |
 | negation (`-term`) | ✅ | native must-not exclusion |
 | phrase (`"a b"`) | ✅ | exact adjacency verified against positional postings |
 | `TOP_*_FF` | ❌ UNSUPPORTED | results are score-ordered only |
