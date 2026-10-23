@@ -594,6 +594,7 @@ class Benchmark extends React.Component {
         </thead>
         <tbody>
           { stats_row(data_view.engines, "AVERAGE", "average", "average") }
+          {/* Percentiles are calculated across per-query averages. */}
           { stats_row(data_view.engines, "P50", "percentile", "p50") }
           { stats_row(data_view.engines, "P90", "percentile", "p90") }
           { stats_row(data_view.engines, "P99", "percentile", "p99") }

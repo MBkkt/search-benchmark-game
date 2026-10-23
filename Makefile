@@ -6,6 +6,7 @@ export
 CORPUS_NAME ?= wikipedia
 
 COMMANDS ?= TOP_10 TOP_100 TOP_1000 TOP_100_COUNT COUNT
+QUERIES ?= queries.txt
 
 # infino-0.11.9 is the published crate (what a user gets from crates.io);
 # infino-main is the tip of infino-ai/infino main. Branch runs swap in
