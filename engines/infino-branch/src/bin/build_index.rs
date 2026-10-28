@@ -80,7 +80,7 @@ fn main() {
         &OptimizeOptions::compact(CompactionSettings {
             target_superfile_size_mb: COMPACT_TARGET_MB,
             min_fill_percent: 1,
-            max_memory_mb: COMPACT_TARGET_MB + 2048,
+            max_merge_input_mb: COMPACT_TARGET_MB + 2048,
             ..Default::default()
         })
         .with_gc(GcSettings {
